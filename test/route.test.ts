@@ -15,12 +15,39 @@
  */
 
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { classify } from '../src/intent.ts';
 import { CORPUS, type Label } from '../src/route/corpus.ts';
 import { embedder } from '../src/route/embed.ts';
-import { localRoutingAvailable, routeLocally } from '../src/route/local.ts';
+import { correctionsInPlay, localRoutingAvailable, routeLocally } from '../src/route/local.ts';
 import { encode, preTokenize } from '../src/route/tokenizer.ts';
+import { record, reset } from '../src/routing-log.ts';
+
+/**
+ * A root with no `.sumo/routing.jsonl` under it, so every test below sees the
+ * shipped centroids and nothing this repo's own `.sumo/` (gitignored, but real
+ * once `sumo` has actually been run here) might otherwise contribute.
+ */
+const NO_CORRECTIONS = join(tmpdir(), 'sumo-route-test-hermetic-root');
+
+/**
+ * A scratch repo whose routing log already contains N corrections, built the
+ * same way the harness produces one: an initial (wrong) route, then the same
+ * text again under the label it should have had — which is exactly what
+ * `record()` marks as a correction.
+ */
+function repoWithCorrections(pairs: readonly (readonly [string, Label])[]): string {
+  reset();
+  const root = mkdtempSync(join(tmpdir(), 'sumo-route-'));
+  for (const [text, to] of pairs) {
+    record(root, { text, mode: 'chat', why: 'question', by: 'rules' });
+    record(root, { text, mode: to, why: 'pinned', by: 'you' });
+  }
+  return root;
+}
 
 const HELD_OUT: Readonly<Record<Label, readonly string[]>> = {
   chat: [
@@ -101,7 +128,7 @@ test('the router is never confidently wrong on held-out phrasings', () => {
   // the coverage number below look better.
   const wrong: string[] = [];
   for (const [text, want] of deferred()) {
-    const route = routeLocally(text);
+    const route = routeLocally(text, NO_CORRECTIONS);
     if (route && route.label !== want) {
       wrong.push(`${route.label} (want ${want}, margin ${route.margin.toFixed(3)}): ${text}`);
     }
@@ -111,7 +138,7 @@ test('the router is never confidently wrong on held-out phrasings', () => {
 
 test('and still answers enough of them to be worth shipping', () => {
   const seen = deferred();
-  const answered = seen.filter(([text]) => routeLocally(text) !== null).length;
+  const answered = seen.filter(([text]) => routeLocally(text, NO_CORRECTIONS) !== null).length;
   // Measured at 28% when the margin was set. A floor rather than a target: the
   // margin is allowed to become more conservative, but silently answering
   // nothing would make the whole file dead weight and should fail here.
@@ -127,7 +154,7 @@ test('degenerate input never reaches a writable mode', () => {
   // nothing and breaks nothing. What must never happen is junk acquiring write
   // access, so that is what this asserts rather than insisting on null.
   for (const input of ['', '   ', '?????', '!!!', 'zzzqqq', '...', '???!!!']) {
-    const route = routeLocally(input);
+    const route = routeLocally(input, NO_CORRECTIONS);
     if (route === null) continue;
     assert.equal(route.label, 'chat', `${JSON.stringify(input)} must not become writable work`);
   }
@@ -139,9 +166,82 @@ test('every corpus example routes to its own label', () => {
   // tokenizer or the table is wrong.
   for (const [label, examples] of Object.entries(CORPUS) as [Label, readonly string[]][]) {
     for (const example of examples) {
-      const route = routeLocally(example);
+      const route = routeLocally(example, NO_CORRECTIONS);
       if (route) assert.equal(route.label, label, example);
     }
+  }
+});
+
+test('a handful of repeated corrections flips a genuinely borderline phrase', () => {
+  // Below the gate on the shipped corpus alone: 'chat' edges 'do' by 0.011,
+  // nowhere near MIN_MARGIN. Five corrections on the same theme, corrected to
+  // `do`, are what should tip it.
+  const phrase = 'should these imports be reordered';
+  const before = routeLocally(phrase, NO_CORRECTIONS);
+  assert.ok(before === null || before.label !== 'do', 'must not already answer do before the overlay');
+
+  const root = repoWithCorrections([
+    ['these imports need reordering', 'do'],
+    ['sort the imports in this file', 'do'],
+    ['put these imports in alphabetical order', 'do'],
+    ['these imports should be alphabetized', 'do'],
+    ['the import order here looks off', 'do'],
+  ]);
+  try {
+    assert.equal(correctionsInPlay(root), 5);
+
+    const after = routeLocally(phrase, root);
+    assert.ok(after, 'the overlay should confidently answer this one');
+    assert.equal(after.label, 'do');
+    assert.ok(after.margin >= 0.1, `margin ${String(after.margin)} did not clear the gate`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unrelated correction log leaves the held-out phrasings alone', () => {
+  // None of these mention forms, uploads, sessions, search or pagination —
+  // nothing here should touch how any held-out phrase classifies.
+  const root = repoWithCorrections([
+    ['the login form submits twice on a slow connection', 'fix'],
+    ['the upload silently drops the last chunk', 'fix'],
+    ['session tokens expire early on mobile', 'fix'],
+    ['the search box loses focus after typing fast', 'fix'],
+    ['pagination skips a page on the last click', 'fix'],
+  ]);
+  try {
+    for (const [text] of deferred()) {
+      const shipped = routeLocally(text, NO_CORRECTIONS);
+      const overlaid = routeLocally(text, root);
+      assert.equal(
+        overlaid?.label ?? null,
+        shipped?.label ?? null,
+        `an unrelated correction log changed the answer for: ${text}`,
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a missing or corrupt routing log degrades to the shipped centroids', () => {
+  const probe = 'the totals come out different on the second run';
+  const shipped = routeLocally(probe, NO_CORRECTIONS);
+
+  const missing = join(tmpdir(), `sumo-route-test-missing-${String(process.pid)}`);
+  assert.doesNotThrow(() => routeLocally(probe, missing));
+  assert.deepEqual(routeLocally(probe, missing), shipped);
+  assert.equal(correctionsInPlay(missing), 0);
+
+  const root = mkdtempSync(join(tmpdir(), 'sumo-route-'));
+  try {
+    mkdirSync(join(root, '.sumo'), { recursive: true });
+    writeFileSync(join(root, '.sumo', 'routing.jsonl'), '{not json\n', 'utf8');
+    assert.doesNotThrow(() => routeLocally(probe, root));
+    assert.deepEqual(routeLocally(probe, root), shipped);
+    assert.equal(correctionsInPlay(root), 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

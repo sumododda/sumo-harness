@@ -480,6 +480,33 @@ the operator's branch — the way out is one command, and it is named.
 
 ---
 
+### 28. The routing log recorded corrections and used none of them · FIXED
+
+`routing-log.ts` said so in its own doc comment: *"This is a log, not a
+learner. Nothing here changes how a turn is routed."* Every `/again <mode>`
+recorded ground truth — the exact input, the route it needed instead — and the
+local router went on comparing every input to the same shipped centroids
+regardless, built from generic phrasing that is out of distribution for any
+one operator's vocabulary by construction.
+
+**Fix:** `routeLocally` now reads a repo's own corrections at startup and
+folds each one into the *corrected* label's centroid before it is normalised
+back to unit length — a per-repo overlay on top of the shipped corpus, kept
+entirely separate from it in memory so a bad correction never touches another
+repo. Each correction counts for 0.3 of a shipped example, not 1: weighing it
+the same as a real example already flipped two of the 64 held-out phrasings in
+`test/route.test.ts` under a correction log about something unrelated, because
+a couple of their margins sit within a thousandth of the gate. 0.3 left that
+set untouched while still being enough for five corrections that agree to
+flip a genuinely borderline phrase, margin to spare. `MIN_MARGIN` is
+unchanged — the overlay changes what the router believes, never how sure it
+has to be before it says so. `src/route/local.ts`, `src/routing-log.ts` ·
+5 tests, including one asserting an unrelated correction log leaves the
+held-out set exactly as it was, and one asserting a missing or corrupt log
+degrades to the shipped centroids rather than throwing.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`
