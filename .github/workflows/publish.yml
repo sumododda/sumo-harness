@@ -1,0 +1,76 @@
+# Publishes to npm when a `v*` tag is pushed.
+#
+# No NPM_TOKEN. Authentication is OIDC trusted publishing: GitHub mints a
+# short-lived token scoped to this repository and this workflow file, and npm
+# accepts it because the package is configured to trust exactly that pair. There
+# is no long-lived credential in the repository, in the org secrets, or on
+# anyone's laptop to leak — which is the entire point. It also means renaming
+# this file breaks publishing until npm is told the new name, and that is the
+# trade being made deliberately.
+#
+# Provenance attestations are published automatically under trusted publishing;
+# the `--provenance` flag is not needed and is deliberately absent.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Mints the OIDC token npm exchanges for publish rights. Without it the
+      # publish fails with an authentication error rather than falling back to
+      # anything.
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          # Required so npm knows which registry the OIDC token is for.
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # A tag is a claim about a version, and a claim worth checking before it
+      # becomes permanent: npm will not let a published version be replaced.
+      - name: Tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "publishing $pkg"
+
+      # The same gate as `check.yml`, repeated rather than assumed. A tag can be
+      # pushed at a commit whose checks never ran, and this is the last moment
+      # anything can be stopped.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run deadcode
+      - run: npm test
+      - run: npm audit --audit-level=high
+
+      # Proves the package a user actually receives works, rather than that the
+      # repository does. This is the step that would have caught shipping raw
+      # TypeScript: Node refuses to strip types under node_modules, so the
+      # tarball failed on install while every test above passed.
+      - name: Install the tarball and run it
+        run: |
+          npm pack
+          npm install -g "./$(ls sumo-harness-*.tgz)"
+          sumo --version
+          rm -f sumo-harness-*.tgz
+
+      # `prepare` builds dist/ automatically. npm CLI 11.5.1+ performs the OIDC
+      # exchange on its own when id-token: write is present.
+      - run: npm publish

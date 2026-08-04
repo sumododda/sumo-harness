@@ -1,0 +1,36 @@
+# The same gate `npm run check` runs locally, so a green terminal and a green
+# pipeline mean the same thing.
+#
+# Order matters: lint and typecheck are seconds and catch most of what breaks,
+# so they fail before the suite spends a minute proving the same point. Nothing
+# here calls a model — `sumo bench` costs real money and stays behind SUMO_E2E.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # `ci` rather than `install`: the lockfile is the input, and a run that
+      # quietly resolves a different tree is not checking what will ship.
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run deadcode
+      - run: npm test
+
+      # A known-vulnerable dependency is a production problem whether or not the
+      # code that uses it changed.
+      - run: npm audit --audit-level=high

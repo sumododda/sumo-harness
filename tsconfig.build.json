@@ -1,0 +1,23 @@
+// Emit configuration, kept apart from the editor/typecheck config.
+//
+// Development runs the TypeScript directly — Node strips the types and there is
+// no build step to forget. That stops working the moment the package is
+// installed rather than linked: Node refuses to strip types for anything under
+// `node_modules`, which is exactly where a global install puts it. So a
+// published copy ships JavaScript, and only a published copy needs to.
+//
+// `rewriteRelativeImportExtensions` is what makes both true at once. The source
+// imports `./store.ts` because that is the file that exists; the emit rewrites
+// those specifiers to `./store.js` so the built copy resolves too.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"]
+}

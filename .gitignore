@@ -1,0 +1,14 @@
+node_modules/
+
+# Per-repo state the harness writes as it runs: task artifacts, the routing
+# log, cached stage answers. All of it is about one machine's sessions.
+.sumo/
+
+# Generated indexes and tool scratch.
+.codegraph/
+.lavish/
+.claude/
+
+# Build products of `npm pack`.
+*.tgz
+dist/
