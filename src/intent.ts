@@ -256,13 +256,20 @@ export const CLASSIFY_SCHEMA = {
 } as const;
 
 /** Maps a classifier answer onto the ladder. Never above rung 3 from a guess. */
-export function intentFromClassifier(mode: Mode, complexity: string): Intent {
+export function intentFromClassifier(
+  mode: Mode,
+  complexity: string,
+  by: 'classifier' | 'local' = 'classifier',
+): Intent {
   const rung =
     complexity === 'hard'
       ? rungAt(mode === 'do' ? 1 : 3)
       : complexity === 'moderate'
         ? rungAt(1)
         : rungAt(0);
-  return { mode, rung, why: complexity, by: 'classifier' };
+  // `local` and `classifier` reach the same conclusion by very different means
+  // — one is free and offline, the other is a model call — and a routing log
+  // that could not tell them apart would hide which one to improve.
+  return { mode, rung, why: complexity, by };
 }
 

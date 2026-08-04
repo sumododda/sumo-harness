@@ -27,7 +27,7 @@ import type { Mode } from './intent.ts';
  * `rules` is deterministic and reproducible, `classifier` is a paid guess, and
  * `default` is what happens when nothing worked.
  */
-export type DecidedBy = 'you' | 'rules' | 'classifier' | 'default';
+export type DecidedBy = 'you' | 'rules' | 'local' | 'classifier' | 'default';
 
 export interface RoutingRecord {
   readonly ts: string;
@@ -154,7 +154,7 @@ export interface RoutingSummary {
  * of reading the rules would have told anyone.
  */
 export function summarize(records: readonly RoutingRecord[]): RoutingSummary {
-  const by: Record<DecidedBy, number> = { you: 0, rules: 0, classifier: 0, default: 0 };
+  const by: Record<DecidedBy, number> = { you: 0, rules: 0, local: 0, classifier: 0, default: 0 };
   const modes: Partial<Record<Mode, number>> = {};
   const changes = new Map<string, number>();
 

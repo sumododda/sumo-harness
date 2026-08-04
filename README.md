@@ -242,6 +242,30 @@ race condition" is a hard bug. Only genuinely ambiguous input pays for a
 one-turn classification on the cheapest model. See `test/intent.test.ts` for
 exactly what routes where.
 
+**Some routing is free without being a rule.** Between the rules and the paid
+classifier sits a local model: `model/embeddings.bin`, a 7.5 MB int8 lookup
+table. Model2Vec has one row of floats per vocabulary token and a sentence is
+the mean of its tokens' rows — no attention, no layers, nothing to run — so
+classifying is an array index and an average, about a tenth of a millisecond,
+with no network and no provider call. It is data rather than code, which is why
+there is no runtime to install and nothing compiled per architecture.
+
+It answers only when one mode is clearly ahead of the others, and says nothing
+otherwise. That gate is the whole design: a free wrong answer is worth less than
+a cheap right one, because a wrong route can hand an edit to a read-only stage
+or send a question through five stages of a bug workflow. On the 64 held-out
+phrasings in `test/route.test.ts` it answers 28% of what the rules decline and
+is wrong on none of them; the rest still cost the classification they always did.
+
+Getting there took one instructive failure. The first version confidently routed
+*"can you clarify what happens when the queue is empty"* to `fix` — a question
+read as a bug report, because a static embedding carries topic and not speech
+act, and "queue", "empty" and "times out" are failure-flavoured words whoever is
+saying them. The fix was not a bigger model, which has the same blind spot; it
+was adding questions *about* failure-flavoured behaviour to the corpus, so the
+`chat` centroid covers them. `/routing` reports it as `by local`, kept distinct
+from `by classifier` so the log can tell a free decision from a paid one.
+
 **Tests decide the model, not a guess.** Predicting which model a task needs is
 unreliable; a failing test is a fact. So work starts cheap, and when the harness
 runs the suite and it fails, the ladder climbs: retry once at the same rung, then
@@ -379,6 +403,7 @@ src/
   state.ts          .sumo/ task artifacts, independent of provider sessions
   types.ts          provider-neutral vocabulary
   ui.ts             terminal rendering, and the same artifacts laid out for a person
+  route/            local routing: tokenizer.ts, embed.ts, corpus.ts, local.ts
   context/          the code-context seam: codegraph.ts, lsp.ts, index.ts, types.ts
   engine/           the provider seam: claude.ts, index.ts, types.ts
   workflows/        do.ts, plan.ts, fix.ts, feature.ts

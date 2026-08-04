@@ -12,6 +12,7 @@ import * as cache from './cache.ts';
 import { Conversation } from './conversation.ts';
 import { getEngine } from './engine/index.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
+import { routeLocally } from './route/local.ts';
 import {
   CLASSIFY_PROMPT,
   CLASSIFY_SCHEMA,
@@ -477,7 +478,19 @@ async function decideIntent(input: string, deps: TurnDeps): Promise<Intent> {
   const ruled = classify(input, sticky);
   if (ruled) return state.rung ? { ...ruled, rung: state.rung, why: 'pinned' } : ruled;
 
-  // Ambiguous. One turn, no tools, cheapest model — a fraction of a cent.
+  // The rules had no answer. Before paying for one, ask the local model — an
+  // embedding table on disk, no network and no provider call. It answers only
+  // when one mode is clearly ahead of the rest and otherwise says nothing, so
+  // the paid classifier below still handles everything genuinely ambiguous.
+  if (!sticky) {
+    const local = routeLocally(input);
+    if (local) {
+      const intent = intentFromClassifier(local.label, local.complexity, 'local');
+      return state.rung ? { ...intent, rung: state.rung, why: 'pinned' } : intent;
+    }
+  }
+
+  // Ambiguous even to the model. One turn, no tools, cheapest model.
   try {
     const result = await runStage(
       engine,
