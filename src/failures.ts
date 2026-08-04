@@ -10,7 +10,7 @@
  * failures, and repeating them wastes tokens while implying the last change did
  * nothing. Only what is newly broken is worth another look.
  *
- * Parsing is deliberately conservative: three known runners, and a caller that
+ * Parsing is deliberately conservative: five known runners, and a caller that
  * falls back to the raw tail whenever nothing was recognised. A normaliser that
  * silently drops the one failure the model needed would be worse than verbose.
  */
@@ -39,7 +39,13 @@ const MAX_IN_PROMPT = 12;
  * "use the raw output" rather than "the suite passed".
  */
 export function parse(output: string): Failure[] {
-  const found = [...parseNode(output), ...parsePytest(output), ...parseGo(output)];
+  const found = [
+    ...parseNode(output),
+    ...parsePytest(output),
+    ...parseGo(output),
+    ...parseVitest(output),
+    ...parseJest(output),
+  ];
 
   // A run can match more than one parser — a Go suite invoked through npm, say.
   // Identity is the test plus where it lives.
@@ -152,6 +158,68 @@ function parseGo(output: string): Failure[] {
   return failures;
 }
 
+/**
+ * vitest, default reporter.
+ *
+ * A failing test appears twice: once in the live `❯ file (n tests | m
+ * failed)` summary, and once under `Failed Tests` as `FAIL <file> >
+ * <describe> > <case>` with the assertion on the line beneath. The `FAIL `
+ * marker exists only in the detail section, so anchoring on it selects each
+ * failure exactly once.
+ */
+function parseVitest(output: string): Failure[] {
+  const lines = output.split('\n');
+  const failures: Failure[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const header = /^\s*FAIL\s+(\S+)\s*>\s*(.+)$/.exec(lines[i]!);
+    if (!header) continue;
+
+    const message = lines.slice(i + 1, i + 6).find((l) => l.trim().length > 0);
+    failures.push({
+      test: header[2]!.trim(),
+      file: header[1]!,
+      ...messageOf(message),
+    });
+  }
+
+  return failures;
+}
+
+/**
+ * jest, default reporter.
+ *
+ * `FAIL <file>` names each failing suite, and every failing test inside it
+ * gets a `● <describe> › <case>` block with the assertion a couple of lines
+ * below. The two are tracked together since the file only appears once per
+ * suite, not once per test.
+ */
+function parseJest(output: string): Failure[] {
+  const lines = output.split('\n');
+  const failures: Failure[] = [];
+  let file = '';
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const header = /^FAIL\s+(\S+)\s*$/.exec(lines[i]!);
+    if (header) {
+      file = header[1]!;
+      continue;
+    }
+
+    const name = /^\s*●\s+(.+)$/.exec(lines[i]!);
+    if (!name || !file) continue;
+
+    const message = lines.slice(i + 1, i + 6).find((l) => l.trim().length > 0);
+    failures.push({
+      test: name[1]!.trim(),
+      file,
+      ...messageOf(message),
+    });
+  }
+
+  return failures;
+}
+
 /** Pulls `expected:`/`actual:` style fields out of a block. */
 function field(block: string, pattern: RegExp, as: 'expected' | 'actual' = 'expected') {
   const value = pattern.exec(block)?.[1]?.trim();
@@ -183,6 +251,18 @@ function messageOf(message?: string): { message?: string } {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The distinct files a set of failures names, in the order first seen. */
+export function testFiles(failures: readonly Failure[]): string[] {
+  const seen = new Set<string>();
+  const files: string[] = [];
+  for (const f of failures) {
+    if (!f.file || seen.has(f.file)) continue;
+    seen.add(f.file);
+    files.push(f.file);
+  }
+  return files;
 }
 
 export interface Delta {

@@ -425,6 +425,28 @@ from nothing. What bounds a stage is its turn limit, which is a thing it can
 finish inside. Callers that want a ceiling still pass one; the routing
 classifier keeps its two cents.
 
+### 28. TypeScript's own test runners were invisible to the failure parser · FIXED
+
+`failures.parse` read node:test, pytest and go test, and fell back to the raw
+log for anything it didn't recognise — the fallback that a real TS repo hit on
+every run, since vitest and jest are what TypeScript projects actually use and
+neither was among the three. Delta-retries degraded silently to shipping 6k
+characters of scrollback exactly where the harness is used most, with nothing
+to say that the compression it advertises wasn't happening.
+
+**Fix:** `parseVitest` reads the `FAIL <file> > <describe> > <case>` lines
+vitest prints once per failure, under `Failed Tests` rather than in the live
+summary above it — same trick `parseNode` already used to avoid counting a
+failure twice. `parseJest` pairs each `FAIL <file>` header with the
+`● <describe> › <case>` blocks beneath it. Both were checked against output
+captured from real `vitest run` and `jest` invocations, not guessed at — the
+`›` jest uses to join a describe path, for one, is not the `>` it would have
+been reasonable to assume. `src/failures.ts` · 6 tests.
+
+Also added `testFiles()`, the distinct files a failure set names in
+first-seen order — nothing in this brief calls it yet; a later one locks
+those files while a fix is in progress.
+
 ---
 
 ## Open — not yet fixed
