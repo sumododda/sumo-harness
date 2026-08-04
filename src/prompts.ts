@@ -6,6 +6,7 @@
  * essentially all the standing instruction a stage gets.
  */
 
+import * as features from './features.ts';
 import { loadProfile } from './profile.ts';
 
 const ROLE = `You are a coding agent in the sumo harness. Work only on the stated task.
@@ -94,13 +95,27 @@ so and give both rather than picking one silently. If searching does not settle
 it, say what you could not confirm instead of filling the gap from memory.
 Be brief: what was asked, not everything found.`;
 
+/**
+ * Told to a survey stage once the skeleton flag is on. Bug #22: `explore` and
+ * `plan` both `Read` a large file in full on top of a pack that had already
+ * selected it — the index was meant to replace that read, not sit beside it.
+ * Naming the one thing that gets a body (the symbol) costs a sentence and
+ * turns "read the whole file to check" into "the signature already said
+ * enough" for the common case. Returns '' when the flag is off, so this reads
+ * as it did before the flag existed.
+ */
+function skeletonHint(): string {
+  if (!features.get().skeletonContext) return '';
+  return " A skeleton above lists this task's files by signature, no bodies — a\nbody is available by naming its symbol, not by reading the whole file.";
+}
+
 export const EVIDENCE_STAGE = (bug: string, context = '') =>
   `${context}Reported problem: ${bug}
 
 Gather evidence. Do not fix anything and do not edit any file.
 Any code shown above was selected by the repository's index — start from it and
-open further files only when it is not enough. Report what you actually
-observed along the failing path.
+open further files only when it is not enough.${skeletonHint()} Report what you
+actually observed along the failing path.
 If a single command would demonstrate the problem, propose it — the harness
 will run it, not you. At most three hypotheses, each tied to an observation.`;
 
@@ -158,7 +173,7 @@ export const EXPLORE_STAGE = (task: string, files: readonly string[] = [], conte
   `${context}${fileListing(files)}Task: ${task}
 
 Investigate before proposing anything. Do not edit any file.
-Any code shown above was selected by the repository's index — start from it.
+Any code shown above was selected by the repository's index — start from it.${skeletonHint()}
 Trust the file listing above over a Glob: Glob answers from dependency
 directories first and truncates, so a file missing from it is not evidence that
 the file does not exist.

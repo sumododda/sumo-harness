@@ -10,6 +10,7 @@
 
 import { createRequire } from 'node:module';
 import type * as CodeGraphModule from '@colbymchenry/codegraph';
+import * as features from '../features.ts';
 import type { CodeContext, Location } from './types.ts';
 
 /**
@@ -73,7 +74,59 @@ export class CodeGraphContext implements CodeContext {
       });
 
       const text = typeof built === 'string' ? built : JSON.stringify(built);
-      return clamp(text.trim(), maxChars);
+      const combined = `${await this.skeletonBlock(question)}${text.trim()}`;
+      return clamp(combined, maxChars);
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Signatures without bodies, for a stage deciding whether a file is worth
+   * reading in full — a name and a parameter list, not the text that used to
+   * cost a whole `Read`. `getNodesInFile` reads the `signature` column the
+   * index already extracted; nothing here re-parses the file.
+   */
+  async skeleton(paths: readonly string[]): Promise<string> {
+    const sections: string[] = [];
+    for (const path of paths) {
+      let nodes: CodeGraphModule.Node[];
+      try {
+        nodes = this.graph.getNodesInFile(path);
+      } catch {
+        continue;
+      }
+
+      const lines = nodes
+        .slice()
+        .sort((a, b) => a.startLine - b.startLine)
+        .map(skeletonLine)
+        .filter((line): line is string => line !== null);
+
+      if (lines.length > 0) sections.push(`${path}\n${lines.join('\n')}`);
+    }
+    return sections.join('\n\n');
+  }
+
+  /**
+   * `pack`'s own candidate files, skeletonised — `findRelevantContext` is the
+   * search-and-traverse half of `buildContext` without the code-block
+   * extraction, so this reuses the exact selection the pack is built from
+   * rather than asking the index a second, slightly different question.
+   * Best-effort: a failure here must not cost the pack that already
+   * succeeded, so it degrades to nothing rather than throwing.
+   */
+  private async skeletonBlock(question: string): Promise<string> {
+    if (!features.get().skeletonContext) return '';
+    try {
+      const found = await this.graph.findRelevantContext(question, {
+        maxNodes: 25,
+        searchLimit: 8,
+        traversalDepth: 2,
+      });
+      const files = [...new Set([...found.nodes.values()].map((n) => n.filePath))];
+      const text = await this.skeleton(files);
+      return text ? `Skeletons — signatures only, no bodies:\n${text}\n\n` : '';
     } catch {
       return '';
     }
@@ -142,4 +195,35 @@ function dedupe(locations: Location[]): Location[] {
     seen.add(key);
     return true;
   });
+}
+
+/** The kinds a skeleton names. Everything else — imports, properties, locals — is noise for "what does this file offer". */
+const SKELETON_KINDS = new Set<CodeGraphModule.NodeKind>([
+  'class',
+  'interface',
+  'function',
+  'method',
+  'constant',
+]);
+
+/**
+ * One line, no body. `constant` is shown by name only, never its initializer —
+ * `signature` carries the value for that kind (a template literal ran to
+ * hundreds of characters in this very file), which is exactly the body text a
+ * skeleton exists to leave out. It is also skipped entirely when unexported:
+ * an internal constant is not part of what a file offers.
+ */
+function skeletonLine(node: CodeGraphModule.Node): string | null {
+  if (!SKELETON_KINDS.has(node.kind)) return null;
+  if (node.kind === 'constant' && !node.isExported) return null;
+
+  if (node.kind === 'constant') return `  L${node.startLine} const ${node.name}`;
+
+  const modifiers = [node.isStatic && 'static', node.isAsync && 'async'].filter(Boolean).join(' ');
+  const prefix = modifiers ? `${modifiers} ` : '';
+
+  if (node.kind === 'class' || node.kind === 'interface') {
+    return `  L${node.startLine} ${prefix}${node.kind} ${node.name}`;
+  }
+  return `  L${node.startLine} ${prefix}${node.name}${node.signature ?? ''}`;
 }

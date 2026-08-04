@@ -19,6 +19,8 @@ export interface Features {
   readonly deltaRetries: boolean;
   /** Prefer a targeted edit over rewriting a whole file. */
   readonly targetedEdits: boolean;
+  /** Give survey stages symbol skeletons of their candidate files, ahead of full bodies. */
+  readonly skeletonContext: boolean;
 }
 
 const ALL_ON: Features = {
@@ -27,6 +29,7 @@ const ALL_ON: Features = {
   gatedRetrieval: true,
   deltaRetries: true,
   targetedEdits: true,
+  skeletonContext: true,
 };
 
 export const ALL_OFF: Features = {
@@ -35,6 +38,7 @@ export const ALL_OFF: Features = {
   gatedRetrieval: false,
   deltaRetries: false,
   targetedEdits: false,
+  skeletonContext: false,
 };
 
 let current: Features = ALL_ON;
