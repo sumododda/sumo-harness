@@ -314,6 +314,14 @@ export function displayEvidence(e: Evidence): string {
       'Repro',
       e.repro === null ? [] : wrap(e.repro, frameWidth() - RAIL).map((l) => pc.cyan(l)),
     ),
+    // The file only, not the content: `wrap` breaks at spaces and would
+    // collapse a test's own indentation into a single run, which is fine for
+    // a one-line shell command and wrong for source. The full content is
+    // shown once, intact, at the write-consent gate in fix.ts instead.
+    box(
+      'Repro test',
+      e.reproTest === null ? [] : wrap(e.reproTest.file, frameWidth() - RAIL).map((l) => pc.cyan(l)),
+    ),
     box('Hypotheses', bullets(e.hypotheses)),
   ]);
 }

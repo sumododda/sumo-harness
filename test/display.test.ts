@@ -106,9 +106,37 @@ test('wrap keeps the blank lines that separate paragraphs', () => {
 });
 
 test('a repro command is shown when there is one, and skipped when there is not', () => {
-  const base = { observations: [], suspects: ['parseNote'], hypotheses: ['it drops the body'] };
+  const base = { observations: [], suspects: ['parseNote'], reproTest: null, hypotheses: ['it drops the body'] };
   assert.match(plain(displayEvidence({ ...base, repro: 'npm test -- note' })), /Repro/);
   assert.doesNotMatch(plain(displayEvidence({ ...base, repro: null })), /Repro/);
+});
+
+test('a repro test is shown when there is one, and skipped when there is not', () => {
+  const base = { observations: [], suspects: ['parseNote'], repro: null, hypotheses: ['it drops the body'] };
+  const shown = plain(
+    displayEvidence({ ...base, reproTest: { file: 'test/note.test.ts', content: 'x' } }),
+  );
+  assert.match(shown, /Repro test/);
+  assert.match(shown, /test\/note\.test\.ts/);
+  assert.doesNotMatch(plain(displayEvidence({ ...base, reproTest: null })), /Repro test/);
+});
+
+test('the repro test box shows the file, not the whole test body', () => {
+  // Full source can be long, multi-line, and indentation-sensitive — wrap()
+  // breaks at spaces and would collapse that structure. It is shown once,
+  // intact, at the write-consent gate in fix.ts instead; the evidence
+  // artifact on screen only needs to say which file.
+  const shown = plain(
+    displayEvidence({
+      observations: [],
+      suspects: [],
+      repro: null,
+      hypotheses: [],
+      reproTest: { file: 'test/note.test.ts', content: 'a very unique content marker here' },
+    }),
+  );
+  assert.match(shown, /test\/note\.test\.ts/);
+  assert.doesNotMatch(shown, /very unique content marker/);
 });
 
 test('an empty section is left out rather than drawn empty', () => {
@@ -160,6 +188,7 @@ test('nothing ever escapes the frame it is drawn inside', () => {
       ],
       suspects: ['s'.repeat(300)],
       repro: 'node --experimental-strip-types src/cli.ts show missing-id 2>&1 | grep -E "something|rather|long" | head -20',
+      reproTest: { file: 'test/very/deeply/nested/path/for/the/reproduction/of/this/particular/bug.test.ts', content: 'x' },
       hypotheses: ['h '.repeat(200)],
     }),
   );

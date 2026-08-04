@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { buildGate } from '../src/gate-tools.ts';
+import { buildGate, findSecret, isCredentialPath, isInside } from '../src/gate-tools.ts';
 
 const ROOT = '/repo';
 
@@ -172,4 +172,31 @@ test('without the preference, whole-file writes are allowed', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// `isCredentialPath`, `isInside` and `findSecret` are exported so fix.ts can
+// apply the identical screen to a repro test's content, which reaches disk
+// with no Edit/Write tool call for `buildGate` to intercept. These pin the
+// exported functions directly, on top of the behavioural tests above that
+// already prove `buildGate` uses them.
+
+test('isCredentialPath recognises the same shapes buildGate refuses', () => {
+  assert.equal(isCredentialPath('.env'), true);
+  assert.equal(isCredentialPath('config/.env.production'), true);
+  assert.equal(isCredentialPath('.env.example'), false);
+  assert.equal(isCredentialPath('src/config.ts'), false);
+});
+
+test('isInside confines a candidate to root, the same way buildGate does', () => {
+  assert.equal(isInside('/repo', 'src/a.ts'), true);
+  assert.equal(isInside('/repo', '/repo/src/a.ts'), true);
+  assert.equal(isInside('/repo', '../outside.ts'), false);
+  assert.equal(isInside('/repo', '/etc/passwd'), false);
+});
+
+test('findSecret matches the same patterns buildGate refuses content on', () => {
+  const found = findSecret("export const key = 'AKIAABCDEFGHIJKLMNOP';");
+  assert.ok(found);
+  assert.match(found.label, /AWS access key/i);
+  assert.equal(findSecret('export const x = 1;'), null);
 });

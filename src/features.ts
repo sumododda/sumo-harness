@@ -23,6 +23,8 @@ export interface Features {
   readonly skeletonContext: boolean;
   /** Revert a retry's own changes before the next attempt, so it starts from a clean tree. */
   readonly cleanRetries: boolean;
+  /** When `fix` has a confirmed repro test, sample a second independent candidate before retrying. */
+  readonly candidateSampling: boolean;
 }
 
 const ALL_ON: Features = {
@@ -33,6 +35,7 @@ const ALL_ON: Features = {
   targetedEdits: true,
   skeletonContext: true,
   cleanRetries: true,
+  candidateSampling: true,
 };
 
 export const ALL_OFF: Features = {
@@ -43,6 +46,7 @@ export const ALL_OFF: Features = {
   targetedEdits: false,
   skeletonContext: false,
   cleanRetries: false,
+  candidateSampling: false,
 };
 
 let current: Features = ALL_ON;

@@ -687,6 +687,103 @@ all to confirm the revert is skipped rather than guessed at.
 
 ---
 
+### 34. `fix` verified a patch without ever selecting between candidates, and evidence's only durable artifact was a shell command · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+`fix` runs the whole suite to verify a patch, but never *selects* between
+candidate patches — one `fix`-stage attempt per rung, accepted or rejected
+wholesale. And the evidence stage's only durable output was a shell repro
+*command*: useful for a human to eyeball, but nothing a later stage could
+check a candidate against more precisely than "did the whole suite pass".
+Published results on this technique — generate a reproduction test, then
+sample multiple candidate fixes and keep the one that turns it green — report
+it as the single largest lever measured for this kind of pipeline, ahead of
+majority voting or regression-test filtering alone. It also closes the
+approximation entry #32 shipped: `fix`'s pre-existing-failure baseline told
+"the bug's own test" from "unrelated pre-existing failure" apart only by
+locking-and-refusing-forgiveness — a proxy. An explicit, harness-confirmed
+repro test is the signal that was actually missing.
+
+**Fix, in two parts.** `Evidence` gained `reproTest: {file, content} | null`,
+alongside `repro`, describing a new-or-existing test expected to fail right
+now — optional, explicitly: a UI or manual-only bug has nothing test-shaped to
+propose. When one is proposed, `fix.ts` screens it with the identical checks
+`buildGate` applies to every tool-based write — `isCredentialPath`, `isInside`,
+and a new `findSecret` (gate-tools.ts's own secret-pattern scan, exported
+rather than re-implemented so `buildGate` and this call site can never drift
+apart) — because this write reaches disk straight from a schema field, with no
+Edit/Write tool call for the gate to ever see. Screened content is then
+offered through the same consent gate `maybeRunRepro` already uses for a
+repro *command*, written, and run once; only if it genuinely fails does it
+become `reproTestFile` and get folded into `lockedPaths`, the same set
+`preExisting`/repro-derived failures already lock. Every way this can come up
+empty — refused, declined, passes immediately, no test command to confirm it
+with — degrades to "no repro test", never to an error; a repro that doesn't
+reproduce is worse than none, the same principle `feature.ts`'s
+`proveFailing` already applies to a newly-written test. A file that fails to
+reproduce is left on disk rather than deleted: it is real, operator-approved
+content that just isn't evidence of *this* bug.
+
+Once a repro test is confirmed, `fixUntilVerified` tries up to two independent
+`fix`-stage candidates per rung instead of one, behind
+`features.candidateSampling`. Candidate 2 sees the exact rootCause/notes
+candidate 1 saw — not "candidate 1 failed, here's why", which is what the
+ladder's own retry already supplies one rung later. Both candidates are
+scored by the *same* `verify()` used everywhere else in `fix` — no second,
+divergent notion of "did it work" — which already encodes the right rule
+(the repro test no longer fails, and nothing new broke) once the repro test
+is locked. Between candidates the tree is reverted with the exact
+`runner.revertChanges` mechanism entry #33 added, unconditionally, regardless
+of `cleanRetries`: that flag is an optimisation between ladder retries, and
+without this revert "two candidates" would just mean candidate 1 with more
+edits on top. The one property that would have been easy to get quietly
+wrong: a rung's two candidates, both failing, must cost the ladder in
+`escalate.ts` exactly one retry, not two — `afterFailure` is called once per
+outer-loop iteration regardless of how many candidates ran inside it, proven
+by watching which rung the next real attempt lands on rather than trusting a
+count.
+
+**Judgment calls, made explicit:**
+- The confirmed repro test is excluded from every revert by adding it to
+  `lockedPaths` and filtering the shared revert helper on that set, rather
+  than moving `alreadyChanged`'s computation later — `alreadyChanged` is
+  captured before the repro test is written and stays that way; the file the
+  fix stage can never touch (locked) also never needs reverting, the same
+  reason existing locked files never appeared in a revert set before this.
+- The evidence artifact's screen rendering (`ui.ts`) shows only the repro
+  test's file name, not its content — `wrap()` breaks at spaces and would
+  mangle a test's own indentation, unlike a one-line shell command. The full
+  content is shown once, intact, at the write-consent gate instead, which
+  uses `gate.ts`'s plain `indent()`. The *prompt* rendering
+  (`renderEvidence`) does carry the full content — the next stage genuinely
+  needs it, and that renderer never word-wraps.
+- `Ledger.candidates` is a running counter unscoped by a `mark()` cursor,
+  mirroring `escalations`'s existing (also unscoped) shape exactly, rather
+  than fixing that inconsistency here.
+- `Features.candidateSampling` and `Ledger.Summary.candidates` are both
+  fully-required fields, matching every sibling field in their interfaces —
+  which meant two mechanical, non-design touches to `src/bench.ts` (its
+  explicit `full` config, and `Summary`-typed object literals in `total()`
+  and `aggregateMetrics`) to keep it compiling, plus a `?` on
+  `MetricsLine.candidates` since historical `.sumo/metrics.jsonl` rows
+  genuinely don't have it.
+
+`src/schemas.ts`, `src/prompts.ts`, `src/ui.ts`, `src/gate-tools.ts`,
+`src/workflows/fix.ts`, `src/features.ts`, `src/ledger.ts` (`src/bench.ts`
+touched only mechanically, to keep two now-exhaustive interfaces compiling) ·
+16 new tests, plus test/fix-gates.test.ts and test/clean-retries.test.ts
+passing unmodified — this is purely additive when no repro test is proposed
+or the flag is off, which is every case before this brief.
+
+**Still open:** everything above is proven offline, against a stub engine and
+a real fixture repo — the same discipline entry #31's bench harness already
+established. What is *not* yet measured is the number this whole brief exists
+to justify: whether $/verified actually improves with `candidateSampling` on.
+That requires a live `SUMO_E2E=1` `sumo bench` comparison, which costs real
+money and was explicitly deferred here, the same way entry #22 deferred its
+own live measurement.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

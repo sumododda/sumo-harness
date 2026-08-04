@@ -29,6 +29,14 @@ export const Evidence = z.object({
     .string()
     .nullable()
     .describe('one shell command that demonstrates the problem, or null'),
+  reproTest: z
+    .object({ file: z.string(), content: z.string() })
+    .nullable()
+    .describe(
+      'a new-or-existing test file whose content demonstrates the bug and is ' +
+        'expected to fail right now, or null when nothing test-shaped fits ' +
+        '(e.g. a UI or manual-only bug). The harness writes and runs it, never you.',
+    ),
   hypotheses: z.array(z.string()).describe('at most three, each tied to an observation'),
 });
 export type Evidence = z.infer<typeof Evidence>;
@@ -119,6 +127,7 @@ export function renderEvidence(e: Evidence): string {
     ['Observations', e.observations.length > 0 ? encode({ observations: e.observations }) : 'none'],
     ['Suspects', list(e.suspects)],
     ['Repro', e.repro ?? 'none'],
+    ['Repro test', e.reproTest ? `${e.reproTest.file}\n${e.reproTest.content}` : 'none'],
     ['Hypotheses', list(e.hypotheses)],
   ]);
 }

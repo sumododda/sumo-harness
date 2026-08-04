@@ -66,3 +66,12 @@ test('switching the flag off leaves the rest of the prompt untouched', () => {
   assert.match(explore, /Task: add search/);
   assert.match(explore, /Trust the file listing above over a Glob/);
 });
+
+test('the evidence stage asks for a reproduction test, and says it is optional', () => {
+  const prompt = EVIDENCE_STAGE('crashes on save');
+
+  assert.match(prompt, /test file/i);
+  assert.match(prompt, /harness writes and runs it/i, 'says who runs it, not just who does not');
+  assert.match(prompt, /null/i, 'optionality is spelled out, not implied');
+  assert.match(prompt, /expected to fail/i);
+});
