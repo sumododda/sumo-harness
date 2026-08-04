@@ -175,11 +175,20 @@ test('a currently-failing test file is locked during the fix stage, the source f
   }
 });
 
-test('a suite whose only remaining failures pre-date the task is treated as verified', async () => {
+test('a suite whose only remaining failures pre-date the task, and name no file, is treated as verified', async () => {
   const seen: { stage: string; tier: Tier; effort?: string }[] = [];
-  // The same failure, byte for byte, on the baseline and after the fix: this
-  // task never touched it.
-  const staleFailure = failing('test/unrelated.test.ts', 'an old, unrelated bug');
+  // Same failure, byte for byte, on the baseline and after the fix — this task
+  // never touched it. Deliberately in a shape none of `failures.parse`'s five
+  // runner formats resolve to a named file (a bare TAP `not ok` line, not
+  // `FAILED path::test`, `--- FAIL: Name`, or a node/vitest/jest marker), so it
+  // never becomes a locked path: it is not a test this task could be accused of
+  // ignoring, because nothing identifies it as belonging to any file at all.
+  // `runner.failureLines` still recognises it for the pre/post diff, which is
+  // the whole point — the forgiveness this test proves is narrower than "any
+  // unchanged pre-existing failure", and correctly so: see the next test for
+  // why an unchanged failure inside a locked (parseable, file-identified) test
+  // must never be forgiven the same way.
+  const staleFailure = 'not ok 1 - some old flaky check\n';
   const { ctx, cleanup } = await fixture(
     [
       { output: staleFailure, passed: false },
@@ -197,6 +206,39 @@ test('a suite whose only remaining failures pre-date the task is treated as veri
       seen.filter((s) => s.stage === 'fix').length,
       1,
       'no retry for a failure this task did not cause',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("the bug's own test failing before and after the fix is not waved through as pre-existing", async () => {
+  const seen: { stage: string; tier: Tier; effort?: string }[] = [];
+  // Byte for byte the same failure on the baseline run and on every verify
+  // after it — a fix attempt that changed nothing. Because this is exactly
+  // the test the bug report is about, it is also exactly what `lockedPaths`
+  // locks: an unchanged failure in a locked file must never be forgiven as
+  // merely "pre-existing", or a fix that did nothing would verify itself.
+  const bugsOwnFailure = failing('test/thing.test.ts', 'the bug reproduces');
+  const { ctx, cleanup } = await fixture(
+    [
+      { output: bugsOwnFailure, passed: false },
+      { output: bugsOwnFailure, passed: false },
+    ],
+    {},
+    seen,
+  );
+  try {
+    const outcome = await runFix('the thing is broken', { tier: 'small' }, ctx);
+
+    assert.equal(
+      outcome.kind,
+      'stopped',
+      'a fix that left the bug\'s own test exactly as failing as before must not be verified',
+    );
+    assert.ok(
+      seen.filter((s) => s.stage === 'fix').length > 1,
+      'an unfixed bug earns a retry rather than being accepted on the first attempt',
     );
   } finally {
     cleanup();

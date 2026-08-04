@@ -213,7 +213,7 @@ async function fixUntilVerified(
     ui.endTurn();
     ctx.state.write('fix.md', fix.output);
 
-    const outcome = await verify(ctx, preExisting);
+    const outcome = await verify(ctx, preExisting, lockedPaths);
     if (outcome.kind === 'fixed' && outcome.verified) return outcome;
 
     // Without a way to run tests there is nothing to escalate on; saying the
@@ -395,7 +395,11 @@ async function maybeRunRepro(proposed: string, ctx: FixContext): Promise<string 
 }
 
 /** Runs the tests and reports whether the fix actually worked. */
-async function verify(ctx: FixContext, preExisting: string | null): Promise<FixOutcome> {
+async function verify(
+  ctx: FixContext,
+  preExisting: string | null,
+  lockedPaths: readonly string[],
+): Promise<FixOutcome> {
   if (!ctx.testCommand) {
     const files = await runner.changedFiles(ctx.cwd);
     process.stdout.write(
@@ -413,9 +417,18 @@ async function verify(ctx: FixContext, preExisting: string | null): Promise<FixO
     return { kind: 'fixed', verified: true };
   }
 
-  // A suite that was already red stays red. Report whether this fix made it
-  // worse, rather than a failure the task did not cause.
-  if (preExisting && runner.newFailures(preExisting, outcome.output).length === 0) {
+  // A suite that was already red stays red — but only outside the files this
+  // fix is actually about. `lockedPaths` is the bug's own test, when it has
+  // one: if the bug already had a failing regression test, that failure is
+  // ALSO "pre-existing" by this same before/after diff, and forgiving it here
+  // would let a fix that touched nothing report itself verified. Only a
+  // failure outside a locked file is the unrelated noise this check exists to
+  // excuse; a failure inside one is the thing the fix was for.
+  const locked = new Set(lockedPaths);
+  const stillFailing = failures.testFiles(failures.parse(outcome.output));
+  const touchesLockedFile = stillFailing.some((file) => locked.has(file));
+
+  if (preExisting && !touchesLockedFile && runner.newFailures(preExisting, outcome.output).length === 0) {
     process.stdout.write(
       pc.green('  tests pass') +
         pc.yellow(' — the suite is still red from failures that pre-date this task\n'),
