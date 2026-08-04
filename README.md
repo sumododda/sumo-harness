@@ -214,6 +214,13 @@ tool schema, no round trip, no tokens spent deciding what to read. Measured on a
 grows with the repo: on a two-file sandbox it is only ~20%, because there was
 never much to search.
 
+The pack also carries a skeleton of each file it drew from: every function,
+method, class and exported constant by signature, never a body. That closes a
+gap where the pack *added* to the reading instead of displacing it — `explore`
+would receive the relevant code and then `Read` the whole file it came from
+anyway. Signatures are enough to see what exists, and the stage is told plainly
+that naming a symbol is how to get its body.
+
 With an index present the gate also throttles broad searching after a couple of
 calls, pointing the model back at the context it was already given.
 
@@ -256,6 +263,14 @@ a cheap right one, because a wrong route can hand an edit to a read-only stage
 or send a question through five stages of a bug workflow. On the 64 held-out
 phrasings in `test/route.test.ts` it answers 28% of what the rules decline and
 is wrong on none of them; the rest still cost the classification they always did.
+
+It also learns from this repository. Every `/again <mode>` records ground truth
+in `.sumo/routing.jsonl` — the exact words, and the route they needed — and that
+went unread. The shipped corpus is generic phrasing, identical for everyone, so
+it is out of distribution for any one person's vocabulary by construction. Each
+correction is now folded into the corrected label's centroid at a third of a
+shipped example's weight. The margin is untouched: corrections change what the
+router believes, never how sure it has to be before it answers.
 
 Getting there took one instructive failure. The first version confidently routed
 *"can you clarify what happens when the queue is empty"* to `fix` — a question
@@ -429,6 +444,13 @@ config    verified     in    out  retries    total  $/verified
 baseline       3/3  41200   2100        1  $0.1236     $0.0412
 full           3/3   5400    410        0  $0.0213     $0.0071
 ```
+
+`--repeat N` runs each pair N times and reports the spread as well as the mean,
+because a decision taken from a single run of three fixtures is not a
+measurement. Configurations whose ranges overlap are called *not
+distinguishable* rather than left to be eyeballed. And `sumo bench
+--from-metrics` aggregates `.sumo/metrics.jsonl` — what real sessions actually
+cost — offline, with no provider calls at all.
 
 The last column is the one that decides anything. A configuration that halves
 the tokens and fails one task in three costs more than the baseline, not less,
