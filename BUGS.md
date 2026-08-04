@@ -507,6 +507,49 @@ degrades to the shipped centroids rather than throwing.
 
 ---
 
+### 22. Explore is expensive on a repo with large files · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+On `sumo-news`: explore `$0.1392` / 31s, plan `$0.0951` / 18s, for what became a
+one-file documentation edit. Both stages read `settings/page.tsx` in full on top
+of the index pack — the pack is meant to displace a `Read`, and on a repo with
+large files it was only adding to one.
+
+**What's in now.** `CodeGraphContext.skeleton(paths)` reads the `signature`
+column CodeGraph's own extraction already computed — name, parameters, line —
+for every function, method, class, interface, and exported constant in a file,
+and none of the body. It costs no new parsing: `getNodesInFile` is a query
+against data the index already holds.
+
+It is wired into `pack()`, not bolted beside it: `pack` now skeletonises the
+same candidate files `findRelevantContext` selects for the code samples it
+already returns — the exact selection, not a second guess at one — and puts the
+skeleton ahead of those samples. Because it rides inside `pack`'s own return
+value, `explore` and `evidence` get it for free through the plumbing that
+already exists (`packFor` → `packContext` → `EXPLORE_STAGE` / `EVIDENCE_STAGE`);
+no workflow file had to change. Both stages also gained one sentence — present
+only when the flag is on — saying plainly that a body is available by naming
+the symbol, not by reading the whole file.
+
+Gated behind `features.ts`'s `skeletonContext` (on by default), so `sumo bench`
+can compare configurations with and without it.
+
+**What's still open.** Nothing above has a dollar figure attached. The Verify
+step for this brief was explicit that assembling the mechanism does not close
+this bug — closing it means running `explore` on a large-file repo with the
+flag on and off and recording both costs, which spends real money and has to
+happen under `SUMO_E2E=1`, deliberately not run by this brief. Until that
+number exists, treat this as *should* help, not *measured* to.
+
+`src/context/codegraph.ts`, `src/prompts.ts`, `src/features.ts` ·
+`test/skeleton.test.ts`, `test/prompts.test.ts` — 6 tests, offline: the
+skeleton names every exported signature and carries no function or method
+body, and is materially smaller than the file it summarises; the flag gates
+both the skeleton block in `pack()` and the hint sentence in `explore`/
+`evidence`, with everything else in those prompts byte-identical when it is
+off.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`
@@ -523,12 +566,6 @@ task.
 `/again nonsense` says "Nothing to re-run yet" rather than naming the invalid
 mode, because the empty-history check runs first. Cosmetic, but the suggestion
 it prints is then unhelpful.
-
-### 22. Explore is expensive on a repo with large files
-
-On `sumo-news`: explore `$0.1392` / 31s, plan `$0.0951` / 18s, for what became a
-one-file documentation edit. Both stages read `settings/page.tsx` in full. Worth
-measuring whether the index is displacing reads or just adding to them.
 
 ---
 
