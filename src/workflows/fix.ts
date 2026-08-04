@@ -16,7 +16,13 @@ import * as failures from '../failures.ts';
 import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gate.ts';
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
-import { DISCUSS_STAGE, EVIDENCE_STAGE, FIX_STAGE, ROOT_CAUSE_STAGE } from '../prompts.ts';
+import {
+  DISCUSS_STAGE,
+  EVIDENCE_STAGE,
+  feedbackBlock,
+  FIX_STAGE,
+  ROOT_CAUSE_STAGE,
+} from '../prompts.ts';
 import * as runner from '../runner.ts';
 import { Evidence, jsonSchema, RootCause } from '../schemas.ts';
 import { runStage } from '../stage.ts';
@@ -124,7 +130,7 @@ export async function runFix(
   if (approved.kind === 'stopped') return approved;
 
   // 5 & 6. Fix, verify, and climb the ladder while the tests still fail.
-  return await fixUntilVerified(approved.rootCause, approved.feedback, rung, ctx);
+  return await fixUntilVerified(approved.rootCause, approved.notes, rung, ctx);
 }
 
 /**
@@ -133,12 +139,12 @@ export async function runFix(
  */
 async function fixUntilVerified(
   rootCause: string,
-  feedback: string,
+  notes: readonly string[],
   rung: Rung,
   ctx: FixContext,
 ): Promise<FixOutcome> {
   let ladder = startAt(rung);
-  let extra = feedback;
+  let extra = [...notes];
   let attempt = 0;
   let previous: failures.Failure[] = [];
 
@@ -198,11 +204,16 @@ async function fixUntilVerified(
     const table = failures.toPrompt(parsed, previous);
     previous = parsed;
 
-    extra =
-      `${feedback}\nThe previous attempt did not pass.\n` +
-      // A parser that recognised nothing must not be allowed to swallow the
-      // evidence: fall back to what the runner actually said.
-      (table === '' ? `Test output:\n${output}` : `Failing tests:\n${table}`);
+    // The operator's corrections stay at the front of the list on every retry;
+    // the failing output is appended as one more note rather than replacing
+    // them, so a fix that satisfies the tests cannot quietly undo what was asked.
+    extra = [
+      ...notes,
+      'The previous attempt did not pass.\n' +
+        // A parser that recognised nothing must not be allowed to swallow the
+        // evidence: fall back to what the runner actually said.
+        (table === '' ? `Test output:\n${output}` : `Failing tests:\n${table}`),
+    ];
   }
 }
 
@@ -223,10 +234,13 @@ async function gateRootCause(
   rung: Rung,
   ctx: FixContext,
 ): Promise<
-  { kind: 'approved'; rootCause: string; feedback: string } | { kind: 'stopped'; why: string }
+  | { kind: 'approved'; rootCause: string; notes: readonly string[] }
+  | { kind: 'stopped'; why: string }
 > {
   let cause = initial;
-  let feedback = '';
+  // Every correction, in order: a revision shown only the newest was free to
+  // undo an earlier one — see feedbackBlock in prompts.ts.
+  const notes: string[] = [];
   // The proposal is already on screen after a question was answered; printing it
   // again just pushes the answer out of view.
   let shown = false;
@@ -248,7 +262,7 @@ async function gateRootCause(
       ctx.autoApprove,
     );
 
-    if (decision.kind === 'approved') return { kind: 'approved', rootCause: cause.prompt, feedback };
+    if (decision.kind === 'approved') return { kind: 'approved', rootCause: cause.prompt, notes };
     if (decision.kind === 'rejected') return { kind: 'stopped', why: 'you stopped it' };
 
     // A question is not a revision: answer it and ask again, keeping the
@@ -282,12 +296,14 @@ async function gateRootCause(
 
     // Revise on a fresh stage: cheaper than a growing session, and immune to
     // the model defending its earlier answer.
-    feedback = decision.feedback;
+    notes.push(decision.feedback);
     const revised = await runStage(
       ctx.engine,
       {
         name: 'root-cause',
-        prompt: `${ROOT_CAUSE_STAGE(bug, cause.prompt, '')}\n\nOperator feedback: ${feedback}\nRevise accordingly.`,
+        prompt:
+          `${ROOT_CAUSE_STAGE(bug, cause.prompt, '')}\n\n` +
+          `${feedbackBlock(notes)}\nRevise accordingly.`,
         rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
         capabilities: ['read', 'search'],
         cwd: ctx.cwd,

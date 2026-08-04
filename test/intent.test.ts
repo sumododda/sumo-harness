@@ -317,3 +317,24 @@ test('research is pinned unconditionally, because it is a question mode', async 
     assert.equal(intent?.by, 'you');
   }
 });
+
+test('corrections accumulate rather than replacing each other', async () => {
+  const { feedbackBlock } = await import('../src/prompts.ts');
+
+  // The failure this pins down is why arguing with a proposal did not work.
+  // Only the newest note was ever sent, so a second correction silently dropped
+  // the first: told "host it on my own Debian laptop, not a VPS" and then
+  // "mention the schedule", the next proposal was free to put the VPS back —
+  // and nothing on screen said it had.
+  const one = feedbackBlock(['use my own Debian server, not a VPS']);
+  assert.match(one, /use my own Debian server/);
+
+  const both = feedbackBlock(['use my own Debian server, not a VPS', 'mention the schedule']);
+  assert.match(both, /use my own Debian server/, 'the earlier note survives');
+  assert.match(both, /mention the schedule/, 'and so does the later one');
+  assert.match(both, /1\./, 'ordered, so "later refines earlier" is legible');
+  assert.match(both, /2\./);
+  assert.match(both, /still applies/, 'and said explicitly, since order alone implies nothing');
+
+  assert.equal(feedbackBlock([]), '', 'no corrections adds nothing to the prompt');
+});

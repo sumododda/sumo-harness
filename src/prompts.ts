@@ -115,10 +115,10 @@ or a line of the repro output above — no unreferenced assertions. If the
 evidence does not support a conclusion, say so in the cause and leave the fix
 empty rather than guessing.`;
 
-export const FIX_STAGE = (rootCause: string, feedback = '') =>
+export const FIX_STAGE = (rootCause: string, notes: readonly string[] = []) =>
   `Approved root cause and fix:
 ${rootCause}
-${feedback ? `\nOperator feedback to apply: ${feedback}\n` : ''}
+${feedbackBlock(notes)}
 Make exactly this change. Do not fix unrelated issues, do not add defensive
 code, and do not modify tests. The harness will verify by running the suite.
 When done, reply with one line per file changed: <path> — <what changed>.`;
@@ -167,16 +167,40 @@ codebase, not to add a parallel implementation of something already here.
 Name the existing functions to call rather than reimplement, and point at a
 test file that shows how tests are written in this project.`;
 
-export const FEATURE_PLAN_STAGE = (task: string, findings: string, feedback = '') =>
+/**
+ * Every correction so far, not just the most recent one.
+ *
+ * Revisions used to carry only the latest note, so a second correction silently
+ * dropped the first: told "use my own server, not a VPS" and then "mention the
+ * schedule", the next proposal was free to put the VPS back. Arguing with a
+ * proposal only works if the argument accumulates — otherwise each round trades
+ * one fix for another and the operator has no way to tell.
+ */
+export function feedbackBlock(notes: readonly string[]): string {
+  if (notes.length === 0) return '';
+  if (notes.length === 1) return `\nOperator feedback to apply: ${notes[0] ?? ''}\n`;
+  const numbered = notes.map((note, i) => `${String(i + 1)}. ${note}`).join('\n');
+  return `\nOperator feedback so far. All of it still applies — a later note refines
+the earlier ones rather than replacing them, and a proposal that satisfies the
+most recent while undoing an earlier one is wrong:\n${numbered}\n`;
+}
+
+export const FEATURE_PLAN_STAGE = (task: string, findings: string, notes: readonly string[] = []) =>
   `Task: ${task}
 
 Exploration findings:
 ${findings}
-${feedback ? `\nOperator feedback to apply: ${feedback}\n` : ''}
+${feedbackBlock(notes)}
 Write a minimal plan. Call the existing helpers listed above rather than
 writing new ones. Do not add new files or abstractions unless there is no
 alternative. Every step names the file it changes, and every test says why it
-fails today.`;
+fails today.
+
+Some work has no tests: documentation, configuration, a comment. For that work
+return an empty tests list. Do not describe the absence as a test — an entry
+reading "N/A" or "no tests needed" is counted as a test that must then be
+written, and the task is stopped when it is not. An empty list is the correct
+and supported answer, and the harness skips the test stages when it sees one.`;
 
 export const WRITE_TESTS_STAGE = (plan: string, conventions: string) =>
   `Approved plan:

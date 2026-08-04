@@ -141,6 +141,29 @@ export function renderExplore(e: Explore): string {
   ]);
 }
 
+/**
+ * Whether a plan's test list is really a statement that there are none.
+ *
+ * A prompt asks; it does not guarantee. Told to return an empty list for work
+ * that needs no tests, a model may still fill the slot with a placeholder — one
+ * real plan came back with a single test whose case read "N/A —
+ * documentation-only change" and whose reason explained that no test harness
+ * applies. Counted literally that is one test, so the workflow demanded a test
+ * file, none was written, and the task was stopped after $0.43 with the
+ * documentation it had agreed to write still unwritten.
+ *
+ * Reading the placeholder for what it says costs nothing and turns that into
+ * the path the plan actually described. Deliberately narrow — the declaration
+ * has to *be* the whole case, not merely open it, or "none of the ids collide
+ * across a thousand notes" would be read as a plan with no tests in it.
+ */
+const NO_TESTS =
+  /^\s*(n\/?a|none|no tests?(\s+(needed|required|apply|applicable))?|not applicable)\s*(?:$|[—–:(,.-]\s*)/i;
+
+export function declaresNoTests(p: Plan): boolean {
+  return p.tests.length > 0 && p.tests.every((t) => NO_TESTS.test(t.case));
+}
+
 export function renderPlan(p: Plan): string {
   return section([
     ['Approach', p.approach],

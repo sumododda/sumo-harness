@@ -167,3 +167,45 @@ test('nothing ever escapes the frame it is drawn inside', () => {
     assert.ok(line.length <= limit, `evidence line ${String(line.length)} wide: ${line.slice(0, 70)}`);
   }
 });
+
+test('a plan that says "no tests" in words is read as no tests', async () => {
+  const { declaresNoTests } = await import('../src/schemas.ts');
+
+  // The failure this pins down cost $0.43 and wrote nothing. Told to return an
+  // empty list for documentation work, the model filled the slot instead:
+  //
+  //   Tests · 1
+  //   ✗ N/A — documentation-only change
+  //
+  // Counted literally that is one test, so write-tests was required to produce
+  // a file, produced none, and the workflow stopped a task whose plan had just
+  // been approved — leaving the README it agreed to write untouched.
+  const placeholder = (c: string): Plan => ({
+    approach: 'Document the home-server deploy path.',
+    steps: [{ file: 'README.md', action: 'edit', detail: 'Add a section.' }],
+    tests: [{ file: 'README.md', case: c, whyFailsToday: 'There is no test harness for prose.' }],
+    risks: [],
+  });
+
+  for (const c of [
+    'N/A — documentation-only change',
+    'none',
+    'No tests',
+    'not applicable',
+    'n/a',
+  ]) {
+    assert.equal(declaresNoTests(placeholder(c)), true, c);
+  }
+
+  // A real test that merely mentions the word must still count as one.
+  for (const c of [
+    'addNote persists the given body',
+    'none of the ids collide across a thousand notes',
+    'the parser reports no tests when the file is empty',
+  ]) {
+    assert.equal(declaresNoTests(placeholder(c)), false, c);
+  }
+
+  // An empty list is already zero; the check is about a non-empty one.
+  assert.equal(declaresNoTests({ ...placeholder('x'), tests: [] }), false);
+});

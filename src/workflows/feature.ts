@@ -21,7 +21,7 @@ import type { Ledger } from '../ledger.ts';
 import { DISCUSS_STAGE, EXPLORE_STAGE, FEATURE_PLAN_STAGE, IMPLEMENT_STAGE, WRITE_TESTS_STAGE } from '../prompts.ts';
 import { repoFingerprint } from '../hash.ts';
 import * as runner from '../runner.ts';
-import { Explore, jsonSchema, Plan } from '../schemas.ts';
+import { declaresNoTests, Explore, jsonSchema, Plan } from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
@@ -395,12 +395,16 @@ async function gatePlan(
   // because both are facts about the attempt rather than about the plan.
   let stopped: string | undefined;
 
-  const makePlan = async (feedback: string): Promise<ui.Shown<Plan>> => {
+  // Every correction so far, in order. A revision that saw only the newest note
+  // was free to undo an earlier one — see feedbackBlock in prompts.ts.
+  const notes: string[] = [];
+
+  const makePlan = async (): Promise<ui.Shown<Plan>> => {
     const planned = await runStage(
       ctx.engine,
       {
         name: 'plan',
-        prompt: FEATURE_PLAN_STAGE(task, findings, feedback),
+        prompt: FEATURE_PLAN_STAGE(task, findings, notes),
         // Planning is where thinking actually pays, so effort steps up here.
         rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
         capabilities: ['read', 'search'],
@@ -420,12 +424,12 @@ async function gatePlan(
     const proposal = ui.shownPlan(planned.output);
     // An unparseable plan is not a claim that no tests are needed, so it counts
     // as one rather than routing the task down the no-tests path by accident.
-    tests = proposal.value ? proposal.value.tests.length : 1;
+    tests = proposal.value ? (declaresNoTests(proposal.value) ? 0 : proposal.value.tests.length) : 1;
     ctx.state.write('plan.md', proposal.prompt);
     return proposal;
   };
 
-  let plan = await makePlan('');
+  let plan = await makePlan();
   let revisions = 0;
   // After a question is answered the plan is still on screen; reprinting it
   // would push the answer out of view.
@@ -485,7 +489,8 @@ async function gatePlan(
       return { kind: 'stopped', why: rescopeHint('this feature') };
     }
     revisions += 1;
-    plan = await makePlan(decision.feedback);
+    notes.push(decision.feedback);
+    plan = await makePlan();
     shown = false;
   }
 }

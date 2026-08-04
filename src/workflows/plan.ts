@@ -23,7 +23,7 @@ import type { Ledger } from '../ledger.ts';
 import { DISCUSS_STAGE, EXPLORE_STAGE, FEATURE_PLAN_STAGE } from '../prompts.ts';
 import { repoFingerprint } from '../hash.ts';
 import * as runner from '../runner.ts';
-import { Explore, jsonSchema, Plan } from '../schemas.ts';
+import { declaresNoTests, Explore, jsonSchema, Plan } from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
@@ -173,9 +173,13 @@ async function settle(
   let plan = initial;
   let decision = first;
   let revisions = 0;
+  // Every correction, in the order they were made. Passing only the newest one
+  // let each revision undo the last — see feedbackBlock.
+  const notes: string[] = [];
   // An unparseable plan is not a claim that no tests are needed, so it counts
   // as one rather than routing the task down the no-tests path by accident.
-  const testCount = (p: ui.Shown<Plan>): number => (p.value ? p.value.tests.length : 1);
+  const testCount = (p: ui.Shown<Plan>): number =>
+    p.value ? (declaresNoTests(p.value) ? 0 : p.value.tests.length) : 1;
 
   for (;;) {
     if (decision.kind === 'approved') {
@@ -212,13 +216,14 @@ async function settle(
         return { kind: 'planned', plan: plan.prompt };
       }
       revisions += 1;
+      notes.push(decision.feedback);
 
       // Re-plan against the same findings, so exploration is not paid for twice.
       const revised = await runStage(
         ctx.engine,
         {
           name: 'plan',
-          prompt: FEATURE_PLAN_STAGE(task, findings, decision.feedback),
+          prompt: FEATURE_PLAN_STAGE(task, findings, notes),
           rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
           capabilities: ['read', 'search'],
           cwd: ctx.cwd,
