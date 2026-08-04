@@ -65,8 +65,24 @@ program
   .option('--fixtures <names>', 'comma-separated, e.g. ts,py,go')
   .option('--rung <n>', 'ladder rung to start from', (v) => Number.parseInt(v, 10))
   .option('--provider <name>', 'model provider to use')
+  .option(
+    '--repeat <n>',
+    'run each (config, task) pair N times and report mean + spread',
+    (v) => Number.parseInt(v, 10),
+  )
+  .option(
+    '--from-metrics',
+    'aggregate .sumo/metrics.jsonl from real sessions instead of running fixtures (no provider calls)',
+  )
   .action(
-    async (opts: { configs: string; fixtures?: string; rung?: number; provider?: string }) => {
+    async (opts: {
+      configs: string;
+      fixtures?: string;
+      rung?: number;
+      provider?: string;
+      repeat?: number;
+      fromMetrics?: boolean;
+    }) => {
       const split = (value?: string) =>
         value
           ?.split(',')
@@ -78,6 +94,8 @@ program
         ...(split(opts.fixtures) ? { fixtures: split(opts.fixtures)! } : {}),
         ...(opts.rung !== undefined ? { rung: opts.rung } : {}),
         ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+        ...(opts.repeat !== undefined ? { repeat: opts.repeat } : {}),
+        ...(opts.fromMetrics ? { fromMetrics: true } : {}),
       });
     },
   );

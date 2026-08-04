@@ -417,8 +417,8 @@ this process, and only a bounded recent slice is ever sent.
 Every optimisation above is a claim, and claims about token savings do not
 compose — they overlap, so multiplying their advertised ratios produces a number
 nobody can reproduce. Each one is therefore a flag in `src/features.ts`, and
-`sumo bench` replays the same seeded bug in all three fixtures with different
-sets of them switched on:
+`sumo bench` replays 18 seeded bugs across the three fixtures (six per
+language, mixed difficulty) with different sets of them switched on:
 
 ```sh
 SUMO_E2E=1 npm run sumo -- bench --configs baseline,indexed,cached,full
@@ -432,9 +432,15 @@ full           3/3   5400    410        0  $0.0213     $0.0071
 
 The last column is the one that decides anything. A configuration that halves
 the tokens and fails one task in three costs more than the baseline, not less,
-and only the denominator shows it. Each task also appends a line to
-`.sumo/metrics.jsonl`, so the same comparison can be made across real sessions
-rather than only on fixtures.
+and only the denominator shows it.
+
+A single run of each task proves nothing about a stochastic model, so
+`--repeat N` runs every (config, task) pair N times and reports the mean with
+its min–max spread; two configurations whose $/verified ranges overlap are
+called out as *not distinguishable* rather than left for the reader to
+eyeball. Each task also appends a line to `.sumo/metrics.jsonl`, and
+`sumo bench --from-metrics` aggregates it — no provider calls, offline — so
+the same $/verified discipline applies to real sessions, not only fixtures.
 
 ## Releasing
 

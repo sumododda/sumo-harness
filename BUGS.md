@@ -425,6 +425,56 @@ from nothing. What bounds a stage is its turn limit, which is a thing it can
 finish inside. Callers that want a ceiling still pass one; the routing
 classifier keeps its two cents.
 
+### 28. `sumo bench` reported $/verified from a single run, and `.sumo/metrics.jsonl` was write-only · FIXED
+
+The README says *"the last column is the one that decides anything,"* and
+`sumo bench` printed exactly one of it per configuration — one run of three
+fixtures, one seeded bug each. At that sample size, "3/3 verified" and "2/3
+verified" are indistinguishable from noise: a model is stochastic, and nothing
+in the output said whether a $/verified difference between `baseline` and
+`full` was real or just which retry sequence the model happened to draw that
+run.
+
+The corpus was thin the same way. `TASKS` held one bug per language — the same
+whole-percentage discount bug in `ts-app`, `py-app`, and `go-app` — so every
+`sumo bench` claim generalised from n=3.
+
+And the other half of the evidence went unread. Every `/fix`, `/feature`, and
+`/do` session appends a line to `.sumo/metrics.jsonl` — mode, verified, cost,
+tokens, retries — specifically so the same $/verified discipline could be
+checked against real work instead of only fixtures. Nothing ever aggregated
+it; it sat on disk, growing, unconsulted.
+
+**Fix, in three parts.**
+
+`--repeat N` runs each (config, task) pair N times instead of once and reports
+the mean *and* the spread — min–max per cell, not a single number. Two
+configurations whose $/verified ranges overlap are now named explicitly:
+
+    baseline and full are not distinguishable — their $/verified ranges overlap.
+
+so a real difference and a coin flip no longer look the same in the table.
+
+`sumo bench --from-metrics` aggregates `.sumo/metrics.jsonl` as it already is
+— no new format, no provider calls — grouped by mode:
+
+    mode     verified     in   out  retries    total  $/verified
+    chat          0/2     18  1070        0  $0.0228           —
+    fix           2/3  14200  2130        3  $0.1642     $0.0821
+    do            2/2   1050   175        0  $0.0136     $0.0068
+
+And `TASKS` grew from 3 seeded bugs to 18 — five more per fixture, at mixed
+difficulty: a trivial one-line boundary check, a bug duplicated (and buggy the
+same way) across two files so fixing only one still fails the suite, and one
+bug per language chosen to be genuinely subtle rather than convenient — an
+async race in the JS memoizer, an exhausted iterator in the Python summarizer,
+a shared backing array in a Go slice split. A bench run no longer stands on
+one bug per language to make a claim about all of them.
+
+`src/bench.ts`, 15 new fixtures under `test/fixtures/` · 11 tests, all
+offline — the fixture replay itself is still gated behind `SUMO_E2E=1`,
+unchanged.
+
 ---
 
 ## Open — not yet fixed
