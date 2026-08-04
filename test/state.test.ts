@@ -76,6 +76,29 @@ test('corrupt progress is ignored instead of crashing the session', async () => 
   }
 });
 
+test('the gate-resumable flag round-trips, and is absent unless set', async () => {
+  const dir = await repo();
+  try {
+    const info = findRepo(dir);
+
+    new TaskState(info, 'task-plain').saveProgress({
+      mode: 'fix', task: 'x', stage: 'stopped', finished: false, note: 'you stopped it',
+    });
+    assert.equal(
+      new TaskState(info, 'task-plain').loadProgress()?.resumable,
+      undefined,
+      'a stop that was not at the gate is not resumable this way',
+    );
+
+    new TaskState(info, 'task-gate').saveProgress({
+      mode: 'feature', task: 'y', stage: 'stopped', finished: false, note: 'you stopped it', resumable: 'gate',
+    });
+    assert.equal(new TaskState(info, 'task-gate').loadProgress()?.resumable, 'gate');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('artifacts are hidden from git without touching a tracked .gitignore', async () => {
   const dir = await repo();
   try {

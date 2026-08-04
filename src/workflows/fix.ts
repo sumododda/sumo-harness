@@ -62,7 +62,7 @@ export interface FixContext {
 
 export type FixOutcome =
   | { readonly kind: 'fixed'; readonly verified: boolean }
-  | { readonly kind: 'stopped'; readonly why: string };
+  | { readonly kind: 'stopped'; readonly why: string; readonly at?: 'gate' };
 
 export async function runFix(
   bug: string,
@@ -70,19 +70,56 @@ export async function runFix(
   ctx: FixContext,
   /** The index's answer for this task. Stable, unlike the conversation. */
   packContext = '',
+  /**
+   * Re-enters the approval gate directly with a previously saved diagnosis,
+   * skipping evidence and root-cause entirely — how `/resume` picks a task back
+   * up at exactly the gate it stopped at, rather than paying to reach it again.
+   */
+  resumeFrom?: { readonly rootCause: ui.Shown<RootCause> },
 ): Promise<FixOutcome> {
   const { engine, ledger, state, cwd } = ctx;
 
   // What this task's own stages are allowed to revert on a failed retry is
   // "everything that wasn't already dirty" — recorded before anything runs,
   // so unrelated in-flight work is never mistaken for a failed attempt's mess.
+  // Recorded fresh on a resumed run too: resuming happens in a new process,
+  // possibly after the operator has touched other files in the meantime.
   const alreadyChanged = new Set(await runner.changedFiles(cwd));
 
   // Record what was already broken. Without this a single unrelated red test
   // makes an otherwise-correct fix unverifiable — verify() is all-or-nothing,
   // so the ladder would retry, escalate, and give up on a failure this task
-  // did not cause.
+  // did not cause. Re-run on resume too, for the same reason `alreadyChanged`
+  // is: the baseline is a fact about the tree right now, not about whenever
+  // evidence first ran.
   const preExisting = await preExistingFailures(ctx);
+
+  if (resumeFrom) {
+    const approved = await gateRootCause(resumeFrom.rootCause, bug, rung, ctx);
+    if (approved.kind === 'stopped') return approved;
+
+    // Locked test files still matter on a resumed fix — a currently-failing
+    // test is still a test a lazy fix could be tempted to weaken, whether this
+    // run reached the gate today or three days ago. Rebuilt from `preExisting`
+    // and whatever repro output the original run persisted; `reproTestFile` is
+    // deliberately `null` here — a confirmed repro test from the original
+    // evidence pass isn't itself persisted anywhere resume can recover it from,
+    // so a resumed fix loses candidate sampling but keeps every safety
+    // mechanism that doesn't depend on it.
+    const repro = ctx.state.read('repro.txt');
+    const lockedPaths = failures.testFiles(failures.parse(`${preExisting ?? ''}\n${repro ?? ''}`));
+
+    return await fixUntilVerified(
+      approved.rootCause,
+      approved.notes,
+      preExisting,
+      lockedPaths,
+      alreadyChanged,
+      null,
+      rung,
+      ctx,
+    );
+  }
 
   // The same task against an unchanged repository has the same evidence, and
   // paying to gather it twice is what a retried fix used to do — see
@@ -167,6 +204,7 @@ export async function runFix(
 
   const diagnosis = ui.shownRootCause(rootCause.output);
   state.write('rootcause.md', diagnosis.prompt);
+  state.write('rootcause.display.md', diagnosis.display);
   if (diagnosis.prompt.trim().length === 0) {
     return { kind: 'stopped', why: producedNothing('root-cause', rootCause.stopped) };
   }
@@ -439,7 +477,7 @@ async function gateRootCause(
   ctx: FixContext,
 ): Promise<
   | { kind: 'approved'; rootCause: string; notes: readonly string[] }
-  | { kind: 'stopped'; why: string }
+  | { kind: 'stopped'; why: string; at?: 'gate' }
 > {
   let cause = initial;
   // Every correction, in order: a revision shown only the newest was free to
@@ -467,7 +505,16 @@ async function gateRootCause(
     );
 
     if (decision.kind === 'approved') return { kind: 'approved', rootCause: cause.prompt, notes };
-    if (decision.kind === 'rejected') return { kind: 'stopped', why: 'you stopped it' };
+    if (decision.kind === 'rejected') {
+      // A revision that produced nothing auto-rejects with an empty artifact —
+      // that is not a proposal worth re-showing, so it does not count as a gate
+      // stop even though the rejection came from this same gate.
+      return {
+        kind: 'stopped',
+        why: 'you stopped it',
+        ...(cause.prompt.trim().length > 0 ? { at: 'gate' as const } : {}),
+      };
+    }
 
     // A question is not a revision: answer it and ask again, keeping the
     // proposal intact and the revision budget untouched.
@@ -495,7 +542,7 @@ async function gateRootCause(
     }
 
     if (revision + 1 >= MAX_REVISIONS) {
-      return { kind: 'stopped', why: rescopeHint('this bug') };
+      return { kind: 'stopped', why: rescopeHint('this bug'), at: 'gate' };
     }
 
     // Revise on a fresh stage: cheaper than a growing session, and immune to
@@ -524,6 +571,7 @@ async function gateRootCause(
 
     cause = ui.shownRootCause(revised.output);
     ctx.state.write('rootcause.md', cause.prompt);
+    ctx.state.write('rootcause.display.md', cause.display);
     // A revision produced something new, so it does need showing.
     shown = false;
   }
@@ -692,7 +740,19 @@ async function verify(
   const stillFailing = failures.testFiles(failures.parse(outcome.output));
   const touchesLockedFile = stillFailing.some((file) => locked.has(file));
 
-  if (preExisting && !touchesLockedFile && runner.newFailures(preExisting, outcome.output).length === 0) {
+  // "No new failures" is only a signal when `preExisting` actually named at
+  // least one — a suite whose failure text matches no known format (a bare
+  // "still broken", say) diffs as empty against anything, itself included, so
+  // forgiveness would fire on every red run regardless of whether the suite
+  // had genuinely improved. No recognised failure to compare against means no
+  // basis for forgiving anything.
+  const preExistingHadRecognisedFailure = preExisting !== null && runner.failureLines(preExisting).size > 0;
+
+  if (
+    preExistingHadRecognisedFailure &&
+    !touchesLockedFile &&
+    runner.newFailures(preExisting, outcome.output).length === 0
+  ) {
     process.stdout.write(
       pc.green('  tests pass') +
         pc.yellow(' — the suite is still red from failures that pre-date this task\n'),

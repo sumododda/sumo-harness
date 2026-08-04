@@ -37,9 +37,41 @@ import { detectTestCommand, run, storedTestCommand, storeTestCommand } from './r
 import { type ApprovedPlan, runFeature } from './workflows/feature.ts';
 import { runFix } from './workflows/fix.ts';
 import { runPlan } from './workflows/plan.ts';
-import { findRepo, hideToolingFromGit, TaskState } from './state.ts';
+import { findRepo, hideToolingFromGit, TaskState, type TaskProgress } from './state.ts';
+import type { Plan, RootCause } from './schemas.ts';
 import { rungAt, type Rung, SumoError } from './types.ts';
 import * as ui from './ui.ts';
+
+/**
+ * What's needed to re-enter a stopped task's approval gate directly: the
+ * saved artifact, in the shape `gateRootCause`/`gatePlan` already take.
+ *
+ * `value` is always null on a resumed artifact — the file on disk is the
+ * TOON `prompt` form, not the model's raw JSON, and the gate never reads
+ * `.value` for its own decision. See `Shown` in ui.ts.
+ */
+type GateResume =
+  | { readonly mode: 'fix'; readonly rootCause: ui.Shown<RootCause> }
+  | { readonly mode: 'feature'; readonly plan: ui.Shown<Plan>; readonly tests: number };
+
+/** Rebuilds a stopped task's gate artifact from disk, or null when it is incomplete. */
+function gateResumeFrom(state: TaskState, progress: TaskProgress): GateResume | null {
+  if (progress.mode === 'fix') {
+    const prompt = state.read('rootcause.md');
+    const display = state.read('rootcause.display.md');
+    if (prompt === null || display === null) return null;
+    return { mode: 'fix', rootCause: { value: null, prompt, display } };
+  }
+  if (progress.mode === 'feature') {
+    const prompt = state.read('plan.md');
+    const display = state.read('plan.display.md');
+    const testsRaw = state.read('plan.tests.txt');
+    const tests = testsRaw === null ? Number.NaN : Number.parseInt(testsRaw, 10);
+    if (prompt === null || display === null || Number.isNaN(tests)) return null;
+    return { mode: 'feature', plan: { value: null, prompt, display }, tests };
+  }
+  return null;
+}
 
 interface ReplState {
   /** A pinned mode, or 'auto' to let the harness choose per turn. */
@@ -156,6 +188,7 @@ export async function repl(providerName?: string): Promise<number> {
         if (typeof outcome === 'object') {
           if ('setTestCommand' in outcome) testCommand = outcome.setTestCommand;
           else if ('runShell' in outcome) await runUserCommand(outcome.runShell, repo.root);
+          else if ('resumeGate' in outcome) await working(() => handleResumeGate(outcome.resumeGate, deps));
           else await working(() => handleTurn(outcome.run, deps));
         }
         continue;
@@ -276,6 +309,23 @@ async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
 }
 
 /**
+ * Picks a task back up at exactly the gate it stopped at.
+ *
+ * No intent to decide — the mode is already known, it is the one the task
+ * stopped in — so this skips straight to `runWorkflowTurn` rather than going
+ * through `handleTurn`'s classification.
+ */
+async function handleResumeGate(
+  resume: { readonly state: TaskState; readonly task: string; readonly gate: GateResume },
+  deps: TurnDeps,
+): Promise<void> {
+  deps.state.lastRequest = resume.task;
+  deps.conversation.add('user', resume.task);
+  const rung = deps.state.rung ?? rungAt(1);
+  await runWorkflowTurn(resume.gate.mode, resume.task, rung, deps.conversation.contextBlock(), deps, resume);
+}
+
+/**
  * Handles the commands that replace the context backend. Returns the new
  * context, or null when the line was not one of these.
  */
@@ -350,13 +400,19 @@ async function runWorkflowTurn(
   rung: Rung,
   context: string,
   deps: TurnDeps,
+  /**
+   * Set by `/resume` when the previous attempt stopped exactly at its approval
+   * gate: continues in that task's own directory and re-enters the gate
+   * directly, rather than starting a new task from evidence/explore.
+   */
+  resume?: { readonly state: TaskState; readonly gate: GateResume },
 ): Promise<void> {
   const { engine, repo, ledger, conversation, input, testCommand } = deps;
   const before = ledger.totalUsd;
   // The session ledger spans every turn, so this task is a range within it.
   const mark = ledger.mark();
-  const state = new TaskState(repo, TaskState.newId(mode));
-  state.saveProgress({ mode, task, stage: 'started', finished: false });
+  const state = resume?.state ?? new TaskState(repo, TaskState.newId(mode));
+  state.saveProgress({ mode, task, stage: resume ? 'resumed' : 'started', finished: false });
 
   // Collects anything typed while this task runs. Nothing is read from the
   // keyboard until a gate asks, so without this those lines would sit in the
@@ -384,7 +440,8 @@ async function runWorkflowTurn(
   };
 
   try {
-    const pack = await packFor(deps, task, { mode, rung });
+    // Nothing above the gate needs the index's answer a second time.
+    const pack = resume ? '' : await packFor(deps, task, { mode, rung });
     // Deliberately not `contextWithPack`: see packBlock.
     const withPack = packBlock(pack);
     const staged = { ...ctx, indexed: pack.length > 0, packChars: pack.length };
@@ -410,8 +467,23 @@ async function runWorkflowTurn(
 
     const outcome =
       mode === 'fix'
-        ? await runFix(task, rung, staged, withPack)
-        : await runFeature(task, rung, staged, withPack, approved);
+        ? await runFix(
+            task,
+            rung,
+            staged,
+            withPack,
+            resume && resume.gate.mode === 'fix' ? { rootCause: resume.gate.rootCause } : undefined,
+          )
+        : await runFeature(
+            task,
+            rung,
+            staged,
+            withPack,
+            approved,
+            resume && resume.gate.mode === 'feature'
+              ? { plan: resume.gate.plan, tests: resume.gate.tests }
+              : undefined,
+          );
 
     // handleTurn already recorded the user's message.
     if (outcome.kind === 'stopped') {
@@ -447,6 +519,10 @@ async function runWorkflowTurn(
       // there the plan was the deliverable, and it was delivered.
       finished: outcome.kind !== 'stopped',
       ...(outcome.kind === 'stopped' ? { note: outcome.why } : {}),
+      // Set only for the exact stop this brief exists to shortcut: rejected at
+      // the gate, or the revision limit hit there. The saved artifact this
+      // points at is written by the workflow itself, beside its usual output.
+      ...(outcome.kind === 'stopped' && outcome.at === 'gate' ? { resumable: 'gate' as const } : {}),
     });
 
     if (steer.applied.length > 0) {
@@ -577,7 +653,10 @@ type CommandOutcome =
   | 'handled'
   | { readonly run: string }
   | { readonly setTestCommand: string }
-  | { readonly runShell: string };
+  | { readonly runShell: string }
+  | {
+      readonly resumeGate: { readonly state: TaskState; readonly task: string; readonly gate: GateResume };
+    };
 
 function handleCommand(
   line: string,
@@ -678,9 +757,25 @@ function handleCommand(
           (progress.note ? pc.dim(`  ${progress.note}\n`) : '') +
           pc.dim(`  artifacts: ${previous.dir}\n\n`),
       );
+      if (progress.finished) return 'handled';
+
+      // It stopped exactly at its approval gate: re-show the same artifact for
+      // a fresh decision instead of paying to reach the gate again. Falls
+      // through to the full re-run below when the saved artifact is missing —
+      // an older task directory, or one written before this existed.
+      const gate = progress.resumable === 'gate' ? gateResumeFrom(previous, progress) : null;
+      if (gate) {
+        process.stdout.write(
+          pc.dim(
+            `  picking back up at the ${gate.mode === 'fix' ? 'root cause' : 'plan'} gate — nothing re-surveyed\n`,
+          ),
+        );
+        return { resumeGate: { state: previous, task: progress.task, gate } };
+      }
+
       // Re-running the task is the resume: stages are cheap to redo and the
       // artifacts are already on disk for reference.
-      return progress.finished ? 'handled' : { run: progress.task };
+      return { run: progress.task };
     }
 
     case 'git': {
