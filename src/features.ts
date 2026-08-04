@@ -23,6 +23,8 @@ export interface Features {
   readonly skeletonContext: boolean;
   /** Revert a retry's own changes before the next attempt, so it starts from a clean tree. */
   readonly cleanRetries: boolean;
+  /** Grant every stage the same tool list, so a provider's prefix cache survives stage to stage. */
+  readonly stableToolList: boolean;
 }
 
 const ALL_ON: Features = {
@@ -33,6 +35,7 @@ const ALL_ON: Features = {
   targetedEdits: true,
   skeletonContext: true,
   cleanRetries: true,
+  stableToolList: true,
 };
 
 export const ALL_OFF: Features = {
@@ -43,6 +46,7 @@ export const ALL_OFF: Features = {
   targetedEdits: false,
   skeletonContext: false,
   cleanRetries: false,
+  stableToolList: false,
 };
 
 let current: Features = ALL_ON;

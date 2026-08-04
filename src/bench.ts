@@ -61,6 +61,7 @@ const CONFIGS: Record<string, Features> = {
     targetedEdits: true,
     skeletonContext: true,
     cleanRetries: true,
+    stableToolList: true,
   },
 };
 

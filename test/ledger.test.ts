@@ -96,6 +96,26 @@ test('a replayed stage reads as reused, not as free', () => {
   assert.match(rendered, /\$0\.0233 reused/, 'and the footer says what that was worth');
 });
 
+test('the total line names how many provider cache-read tokens the task used', () => {
+  const ledger = new Ledger();
+  ledger.add(stage({ cacheReadTokens: 1500 }));
+  ledger.add(stage({ stage: 'fix', cacheReadTokens: 900 }));
+
+  const totalLine = ledger.render().split('\n').at(-1)!;
+  // Distinct label from "reused" above it: that is this project's own
+  // exact-result cache, this is the provider's — conflating the two in one
+  // number would misreport which mechanism earned the saving.
+  assert.match(totalLine, /2400 pcache/);
+});
+
+test('the total line omits cache reads when there were none', () => {
+  const ledger = new Ledger();
+  ledger.add(stage({ cacheReadTokens: 0 }));
+
+  const totalLine = ledger.render().split('\n').at(-1)!;
+  assert.doesNotMatch(totalLine, /pcache/);
+});
+
 test('summarize counts retries, escalations, and what was saved', () => {
   const ledger = new Ledger();
   ledger.add(stage({ costUsd: 0.01, attempt: 0 }));

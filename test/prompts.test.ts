@@ -66,3 +66,19 @@ test('switching the flag off leaves the rest of the prompt untouched', () => {
   assert.match(explore, /Task: add search/);
   assert.match(explore, /Trust the file listing above over a Glob/);
 });
+
+test('a writable prompt is an exact prefix of the read-only variant of the same stage', () => {
+  // The read-only notice is the only thing that differs between the two, and it
+  // now sits last. A provider that caches its own request by longest-common-
+  // prefix gets nothing from a shared ending, so what matters is that role,
+  // working directory and profile — everything before the notice — are
+  // byte-identical, which "one is an exact prefix of the other" proves directly.
+  const writable = systemPrompt('/tmp/some-project', true);
+  const readOnly = systemPrompt('/tmp/some-project', false);
+
+  assert.ok(
+    readOnly.startsWith(writable),
+    'the read-only prompt should extend the writable one rather than diverge partway through',
+  );
+  assert.ok(readOnly.length > writable.length);
+});

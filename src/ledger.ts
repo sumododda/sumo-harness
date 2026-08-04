@@ -162,6 +162,10 @@ export class Ledger {
     if (summary.savedUsd > 0) notes.push(`$${summary.savedUsd.toFixed(4)} reused`);
     if (summary.retries > 0) notes.push(`${summary.retries} ${plural(summary.retries, 'retry', 'retries')}`);
     if (summary.escalations > 0) notes.push(`${summary.escalations} escalated`);
+    // Named "pcache" to match the per-stage column and to keep it visibly
+    // distinct from "reused" above: that is this harness's own exact-result
+    // cache, this is the provider's, and the two must never read as one number.
+    if (summary.cacheReadTokens > 0) notes.push(`${summary.cacheReadTokens} pcache`);
 
     return [
       line(head, true),
