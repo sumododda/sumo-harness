@@ -54,7 +54,12 @@ export type FeatureOutcome =
       readonly verified: boolean;
       readonly branch: string | null;
     }
-  | { readonly kind: 'stopped'; readonly why: string; readonly branch: string | null };
+  | {
+      readonly kind: 'stopped';
+      readonly why: string;
+      readonly branch: string | null;
+      readonly at?: 'gate';
+    };
 
 /**
  * A plan the operator has already approved, handed over rather than re-derived.
@@ -81,6 +86,13 @@ export async function runFeature(
   /** The index's answer for this task. Stable, unlike the conversation. */
   packContext = '',
   alreadyApproved?: ApprovedPlan,
+  /**
+   * Re-enters the approval gate directly with a previously saved plan, skipping
+   * explore entirely — how `/resume` picks a task back up at exactly the gate
+   * it stopped at, rather than paying to reach it again. Unlike
+   * `alreadyApproved`, the gate still runs: the plan was never decided on.
+   */
+  resumeFrom?: { readonly plan: ui.Shown<Plan>; readonly tests: number },
 ): Promise<FeatureOutcome> {
   const { engine, ledger, state, cwd } = ctx;
 
@@ -111,7 +123,7 @@ export async function runFeature(
   // confidently wrong rather than merely stale.
   const fingerprint = await repoFingerprint(cwd);
   const reusable =
-    alreadyApproved || fingerprint === null
+    alreadyApproved || resumeFrom || fingerprint === null
       ? null
       : TaskState.findFindings(state.repo, task, fingerprint);
   if (reusable !== null) {
@@ -120,9 +132,9 @@ export async function runFeature(
 
   // 1. Explore — read-only. Its job is to find what already exists. Skipped
   // outright when `plan` mode already did it and the operator approved what it
-  // produced; re-running it would replay from cache, but only to arrive back at
-  // an answer that was handed over in the first place.
-  const explore = alreadyApproved || reusable !== null ? null : await runStage(
+  // produced, or when resuming lands back at the gate — the survey behind the
+  // saved plan is this same task's own explore.md, already on disk.
+  const explore = alreadyApproved || resumeFrom || reusable !== null ? null : await runStage(
     engine,
     {
       name: 'explore',
@@ -141,7 +153,10 @@ export async function runFeature(
     },
     ledger,
   );
-  let exploreText = alreadyApproved?.findings ?? reusable ?? '';
+  let exploreText: string;
+  if (alreadyApproved) exploreText = alreadyApproved.findings;
+  else if (resumeFrom) exploreText = state.read('explore.md') ?? '';
+  else exploreText = reusable ?? '';
 
   if (explore) {
     ui.endTurn();
@@ -153,12 +168,15 @@ export async function runFeature(
   }
 
   // 2. Plan, then the gate. Nothing is built before you agree to it — but an
-  // approval already given is not asked for again.
+  // approval already given is not asked for again, and a gate already reached
+  // once is re-shown from what it last produced rather than re-derived.
   const approved = alreadyApproved
     ? { kind: 'approved' as const, plan: alreadyApproved.plan, tests: alreadyApproved.tests }
-    : await gatePlan(task, exploreText, rung, ctx);
+    : resumeFrom
+      ? await gatePlan({ proposal: resumeFrom.plan, tests: resumeFrom.tests }, task, exploreText, rung, ctx)
+      : await gatePlan(await producePlan(task, exploreText, [], rung, ctx), task, exploreText, rung, ctx);
   if (approved.kind === 'stopped') {
-    return { kind: 'stopped', why: approved.why, branch };
+    return { kind: 'stopped', why: approved.why, branch, ...(approved.at ? { at: approved.at } : {}) };
   }
 
   // Some approved work has no testable contract at all — documentation, a
@@ -380,8 +398,64 @@ async function startBranch(
   return null;
 }
 
+/** What the plan stage answered, plus what the workflow needs to route on it. */
+interface PlanAttempt {
+  readonly proposal: ui.Shown<Plan>;
+  /** How many tests the proposal asks for. A plan asking for none is a claim the workflow has to honour. */
+  readonly tests: number;
+  /** Why the stage ended early, when it did — feeds `producedNothing`. */
+  readonly stopped?: string;
+}
+
 /**
- * The plan stage plus its approval loop.
+ * Runs the plan stage once, and saves both forms of what it produced.
+ *
+ * The display form is saved alongside the prompt form so a gate stop can be
+ * resumed later by re-showing exactly this — no re-parsing the TOON prompt
+ * text back into a display, which the schema does not round-trip.
+ */
+async function producePlan(
+  task: string,
+  findings: string,
+  notes: readonly string[],
+  rung: Rung,
+  ctx: FeatureContext,
+): Promise<PlanAttempt> {
+  const planned = await runStage(
+    ctx.engine,
+    {
+      name: 'plan',
+      prompt: FEATURE_PLAN_STAGE(task, findings, notes),
+      // Planning is where thinking actually pays, so effort steps up here.
+      rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
+      capabilities: ['read', 'search'],
+      cwd: ctx.cwd,
+      ...(ctx.indexed ? { indexed: true } : {}),
+      allowWrites: false,
+      outputSchema: jsonSchema(Plan),
+      ...(ctx.steer ? { steer: ctx.steer } : {}),
+      ...(ctx.progress ? { progress: ctx.progress } : {}),
+      onEvent: ui.renderEvent,
+    },
+    ctx.ledger,
+  );
+  ui.endTurn();
+
+  const proposal = ui.shownPlan(planned.output);
+  // An unparseable plan is not a claim that no tests are needed, so it counts
+  // as one rather than routing the task down the no-tests path by accident.
+  const tests = proposal.value ? (declaresNoTests(proposal.value) ? 0 : proposal.value.tests.length) : 1;
+  ctx.state.write('plan.md', proposal.prompt);
+  ctx.state.write('plan.display.md', proposal.display);
+  // The tests count is a fact about this exact plan text, not something a
+  // resumed gate can recover by re-parsing it — saved beside it for the same
+  // reason the display form is.
+  ctx.state.write('plan.tests.txt', String(tests));
+  return { proposal, tests, stopped: planned.stopped };
+}
+
+/**
+ * The approval loop over an already-produced plan.
  *
  * The plan is written once and then held. Asking a question about it must not
  * regenerate it — an earlier version re-ran the plan stage on every `continue`,
@@ -389,55 +463,21 @@ async function startBranch(
  * existed. Only an actual revision buys a new one.
  */
 async function gatePlan(
+  initial: PlanAttempt,
   task: string,
   findings: string,
   rung: Rung,
   ctx: FeatureContext,
 ): Promise<
-  { kind: 'approved'; plan: string; tests: number } | { kind: 'stopped'; why: string }
+  { kind: 'approved'; plan: string; tests: number } | { kind: 'stopped'; why: string; at?: 'gate' }
 > {
-  // How many tests the current proposal asks for. A plan that asks for none is
-  // making a claim about the work, and the workflow has to honour it.
-  let tests = 0;
-  // Why the last plan stage ended, when it ended early. Kept beside `tests`
-  // because both are facts about the attempt rather than about the plan.
-  let stopped: string | undefined;
-
   // Every correction so far, in order. A revision that saw only the newest note
   // was free to undo an earlier one — see feedbackBlock in prompts.ts.
   const notes: string[] = [];
 
-  const makePlan = async (): Promise<ui.Shown<Plan>> => {
-    const planned = await runStage(
-      ctx.engine,
-      {
-        name: 'plan',
-        prompt: FEATURE_PLAN_STAGE(task, findings, notes),
-        // Planning is where thinking actually pays, so effort steps up here.
-        rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
-        capabilities: ['read', 'search'],
-        cwd: ctx.cwd,
-        ...(ctx.indexed ? { indexed: true } : {}),
-        allowWrites: false,
-        outputSchema: jsonSchema(Plan),
-        ...(ctx.steer ? { steer: ctx.steer } : {}),
-        ...(ctx.progress ? { progress: ctx.progress } : {}),
-        onEvent: ui.renderEvent,
-      },
-      ctx.ledger,
-    );
-    ui.endTurn();
-    stopped = planned.stopped;
-
-    const proposal = ui.shownPlan(planned.output);
-    // An unparseable plan is not a claim that no tests are needed, so it counts
-    // as one rather than routing the task down the no-tests path by accident.
-    tests = proposal.value ? (declaresNoTests(proposal.value) ? 0 : proposal.value.tests.length) : 1;
-    ctx.state.write('plan.md', proposal.prompt);
-    return proposal;
-  };
-
-  let plan = await makePlan();
+  let plan = initial.proposal;
+  let tests = initial.tests;
+  let stopped = initial.stopped;
   let revisions = 0;
   // After a question is answered the plan is still on screen; reprinting it
   // would push the answer out of view.
@@ -467,7 +507,16 @@ async function gatePlan(
     );
 
     if (decision.kind === 'approved') return { kind: 'approved', plan: plan.prompt, tests };
-    if (decision.kind === 'rejected') return { kind: 'stopped', why: 'you stopped it' };
+    if (decision.kind === 'rejected') {
+      // A revision that produced nothing auto-rejects with an empty artifact —
+      // not a proposal worth re-showing, so it does not count as a gate stop
+      // even though the rejection came from this same gate.
+      return {
+        kind: 'stopped',
+        why: 'you stopped it',
+        ...(plan.prompt.trim().length > 0 ? { at: 'gate' as const } : {}),
+      };
+    }
 
     // A question is not a revision: answer it and ask again, keeping the
     // proposal intact and the revision budget untouched.
@@ -494,11 +543,14 @@ async function gatePlan(
     }
 
     if (revisions >= MAX_REVISIONS) {
-      return { kind: 'stopped', why: rescopeHint('this feature') };
+      return { kind: 'stopped', why: rescopeHint('this feature'), at: 'gate' };
     }
     revisions += 1;
     notes.push(decision.feedback);
-    plan = await makePlan();
+    const attempt = await producePlan(task, findings, notes, rung, ctx);
+    plan = attempt.proposal;
+    tests = attempt.tests;
+    stopped = attempt.stopped;
     shown = false;
   }
 }

@@ -133,6 +133,18 @@ export interface TaskProgress {
   /** True once the task reached a terminal state. */
   readonly finished: boolean;
   readonly note?: string;
+  /**
+   * Set only when the task stopped exactly at its approval gate — rejected, or
+   * the revision limit was hit — with the gate's own artifact saved beside this
+   * file (`rootcause.md`/`rootcause.display.md` for `fix`, `plan.md`/
+   * `plan.display.md` for `feature`) ready to re-show.
+   *
+   * Every other stop reason — evidence or root-cause producing nothing, the
+   * ladder giving up after approval — leaves this unset, so `/resume` falls
+   * back to a full re-run. Deliberately not inferred from `note`: that text is
+   * for a person, and matching it would break the moment its wording changes.
+   */
+  readonly resumable?: 'gate';
 }
 
 /**

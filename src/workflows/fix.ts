@@ -54,7 +54,7 @@ export interface FixContext {
 
 export type FixOutcome =
   | { readonly kind: 'fixed'; readonly verified: boolean }
-  | { readonly kind: 'stopped'; readonly why: string };
+  | { readonly kind: 'stopped'; readonly why: string; readonly at?: 'gate' };
 
 export async function runFix(
   bug: string,
@@ -62,8 +62,20 @@ export async function runFix(
   ctx: FixContext,
   /** The index's answer for this task. Stable, unlike the conversation. */
   packContext = '',
+  /**
+   * Re-enters the approval gate directly with a previously saved diagnosis,
+   * skipping evidence and root-cause entirely — how `/resume` picks a task back
+   * up at exactly the gate it stopped at, rather than paying to reach it again.
+   */
+  resumeFrom?: { readonly rootCause: ui.Shown<RootCause> },
 ): Promise<FixOutcome> {
   const { engine, ledger, state, cwd } = ctx;
+
+  if (resumeFrom) {
+    const approved = await gateRootCause(resumeFrom.rootCause, bug, rung, ctx);
+    if (approved.kind === 'stopped') return approved;
+    return await fixUntilVerified(approved.rootCause, approved.notes, rung, ctx);
+  }
 
   // 1. Evidence — read-only. Cannot edit even if it decides it knows the answer.
   const evidence = await runStage(
@@ -121,6 +133,7 @@ export async function runFix(
 
   const diagnosis = ui.shownRootCause(rootCause.output);
   state.write('rootcause.md', diagnosis.prompt);
+  state.write('rootcause.display.md', diagnosis.display);
   if (diagnosis.prompt.trim().length === 0) {
     return { kind: 'stopped', why: producedNothing('root-cause', rootCause.stopped) };
   }
@@ -235,7 +248,7 @@ async function gateRootCause(
   ctx: FixContext,
 ): Promise<
   | { kind: 'approved'; rootCause: string; notes: readonly string[] }
-  | { kind: 'stopped'; why: string }
+  | { kind: 'stopped'; why: string; at?: 'gate' }
 > {
   let cause = initial;
   // Every correction, in order: a revision shown only the newest was free to
@@ -263,7 +276,16 @@ async function gateRootCause(
     );
 
     if (decision.kind === 'approved') return { kind: 'approved', rootCause: cause.prompt, notes };
-    if (decision.kind === 'rejected') return { kind: 'stopped', why: 'you stopped it' };
+    if (decision.kind === 'rejected') {
+      // A revision that produced nothing auto-rejects with an empty artifact —
+      // that is not a proposal worth re-showing, so it does not count as a gate
+      // stop even though the rejection came from this same gate.
+      return {
+        kind: 'stopped',
+        why: 'you stopped it',
+        ...(cause.prompt.trim().length > 0 ? { at: 'gate' as const } : {}),
+      };
+    }
 
     // A question is not a revision: answer it and ask again, keeping the
     // proposal intact and the revision budget untouched.
@@ -291,7 +313,7 @@ async function gateRootCause(
     }
 
     if (revision + 1 >= MAX_REVISIONS) {
-      return { kind: 'stopped', why: rescopeHint('this bug') };
+      return { kind: 'stopped', why: rescopeHint('this bug'), at: 'gate' };
     }
 
     // Revise on a fresh stage: cheaper than a growing session, and immune to
@@ -320,6 +342,7 @@ async function gateRootCause(
 
     cause = ui.shownRootCause(revised.output);
     ctx.state.write('rootcause.md', cause.prompt);
+    ctx.state.write('rootcause.display.md', cause.display);
     // A revision produced something new, so it does need showing.
     shown = false;
   }

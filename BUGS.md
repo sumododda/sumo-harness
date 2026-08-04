@@ -480,6 +480,41 @@ the operator's branch — the way out is one command, and it is named.
 
 ---
 
+### 34. `/resume` re-asked evidence and explore just to reach the same gate again · FIXED
+
+Bug #10 made a rejected task resumable at all — `/resume` would offer it back
+rather than only retyping it. But what it *did* on picking one back up was
+`{ run: progress.task }`, which restarts the whole workflow from its first
+stage. A plan rejected at the gate, or one that hit the revision limit, paid
+for a fresh explore and a fresh plan before showing the operator the same kind
+of decision a second time. Rejecting a plan is exactly the moment you want to
+go again with different framing — not re-pay to be asked again.
+
+**Fix:** `gateRootCause`/`gatePlan` now say *why* a task stopped, not just
+that it did — `FixOutcome`/`FeatureOutcome`'s `stopped` variant carries
+`at?: 'gate'`, set only by the two ways a gate itself ends a task (rejected,
+or the revision limit hit), never inferred from `why` text. When a gate stop
+happens, the workflow saves both forms of what was on screen —
+`rootcause.display.md`/`plan.display.md` beside the existing
+`rootcause.md`/`plan.md` — because the saved file is the TOON form fed to the
+next stage, not what a person needs to read, and reparsing one back into the
+other is not guaranteed to round-trip. `runFix`/`runFeature` each gained an
+additive `resumeFrom` parameter, checked before any of the existing
+evidence/explore logic runs, that hands the saved artifact straight to the
+gate. `gatePlan` was restructured to take a pre-built proposal as its first
+argument — mirroring the shape `gateRootCause` already had — so both
+workflows resume the same way. `/resume` reads `TaskProgress.resumable`
+(`'gate'`, set only by these two stop paths) and, when set, skips straight to
+the gate instead of `{ run: progress.task }`. Branch selection still runs on
+resume rather than being special-cased away: the branch name is deterministic
+from the task text, so `startBranch` rejoins the same branch on its own.
+`src/repl.ts`, `src/state.ts`, `src/workflows/fix.ts`,
+`src/workflows/feature.ts` · 11 tests, including ones confirming a task that
+stopped for any other reason — nothing produced, the ladder giving up after
+approval — still falls back to a full re-run exactly as before.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`
