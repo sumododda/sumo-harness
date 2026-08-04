@@ -482,6 +482,63 @@ the operator's branch — the way out is one command, and it is named.
 
 ## Open — not yet fixed
 
+### 34. A task's tool list changed stage to stage, which broke a provider's own prefix cache · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+Anthropic's prompt caching matches an exact prefix: system prompt, then tool
+definitions, then messages. `engine/claude.ts` built the tool list fresh per
+stage from `capabilities` — a read-only stage like `evidence` got `Read, Glob,
+Grep`; a writable stage like `fix`, later in the same task, got those plus
+`Edit, Write`. That tool-definitions block sits ahead of every message in the
+prefix a provider caches by, so the moment it changed, nothing before it —
+however identical — could be served from cache either.
+
+**What's in now.** `features.ts`'s `stableToolList` (on by default). When it's
+on, `engine/claude.ts`'s new `toolsFor(capabilities)` grants every stage
+`Read, Glob, Grep, Edit, Write` regardless of what it actually asked for, so
+the tool-definitions block stops varying within a task. `git` and `web` are
+deliberately excluded from that stable set and stay capability-driven: both
+are already scoped to one stage per task for reasons unrelated to caching
+(`git` only reaches the repo through a screened MCP tool; `web` is the one
+capability whose answer cannot be re-derived from the repository), and
+granting them everywhere by default would be a materially bigger change than
+this brief set out to make.
+
+Listing `Edit`/`Write` for a read-only stage sounds like it weakens
+enforcement, but `buildGate`'s `PreToolUse` hook never looks at the tool list
+— it decides purely from `allowWrites` and the call itself — so it refuses the
+write exactly as before. The trade is real (an unlisted tool cannot be called
+at all; a listed-but-gated one depends on the hook firing), but it is scoped
+to this flag alone and reverts the moment it's off.
+
+Separately, `prompts.ts`'s `systemPrompt` used to put the read-only notice
+between the working-directory line and the profile, so a read-only and a
+writable stage's prompts diverged almost immediately — the profile behind that
+point, often the largest part of the prompt, was foreign to the cache in both
+directions. Moving the notice to the very end makes a writable stage's whole
+prompt an exact prefix of a read-only stage's, which is the longest common run
+two variants of this string can share.
+
+`Ledger.render()`'s total line now names how many provider cache-read tokens a
+task used (`N pcache`, distinct from `$N reused`, which is this project's own
+separate exact-result cache — the two must never be read as the same saving),
+since `cacheReadTokens` was already collected per stage but never summed
+anywhere a human glances at.
+
+**What's still open.** Same as #22: nothing above has a dollar figure attached
+yet. Whether cache reads actually go up and cost actually goes down can only
+be shown against a live provider, under `SUMO_E2E=1`, and this brief
+deliberately did not spend money proving it. Until that run happens, treat
+this as *should* help, not *measured* to.
+
+`src/features.ts`, `src/engine/claude.ts`, `src/prompts.ts`, `src/ledger.ts`,
+`src/bench.ts` · `test/stable-tool-list.test.ts`, `test/prompts.test.ts`,
+`test/ledger.test.ts` — 7 tests, offline: the flag off leaves a read-only
+stage's tool list byte-for-byte as before; on, it gets the same stable list a
+writable stage gets, `git`/`web` still require asking for them, and
+`buildGate` still refuses `Edit`/`Write` on a read-only stage with those tools
+listed; and the read-only system prompt is now provably an exact-prefix
+extension of the writable one rather than a divergence assumed to help.
+
 ### 21. Old progress files keep their stale `finished: true`
 
 With the branch-reuse fix in place, starting genuinely new work while standing on

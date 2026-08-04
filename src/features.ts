@@ -19,6 +19,8 @@ export interface Features {
   readonly deltaRetries: boolean;
   /** Prefer a targeted edit over rewriting a whole file. */
   readonly targetedEdits: boolean;
+  /** Grant every stage the same tool list, so a provider's prefix cache survives stage to stage. */
+  readonly stableToolList: boolean;
 }
 
 const ALL_ON: Features = {
@@ -27,6 +29,7 @@ const ALL_ON: Features = {
   gatedRetrieval: true,
   deltaRetries: true,
   targetedEdits: true,
+  stableToolList: true,
 };
 
 export const ALL_OFF: Features = {
@@ -35,6 +38,7 @@ export const ALL_OFF: Features = {
   gatedRetrieval: false,
   deltaRetries: false,
   targetedEdits: false,
+  stableToolList: false,
 };
 
 let current: Features = ALL_ON;

@@ -51,6 +51,7 @@ const CONFIGS: Record<string, Features> = {
     gatedRetrieval: true,
     deltaRetries: true,
     targetedEdits: true,
+    stableToolList: true,
   },
 };
 

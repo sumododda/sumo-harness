@@ -38,21 +38,30 @@ wastes the turn. If the task needs a change, say precisely what should change
 and in which file; the harness routes that to a stage that can make it.`;
 
 /**
- * Builds the system prompt for a stage: role, working directory, permissions,
- * profile.
+ * Builds the system prompt for a stage: role, working directory, profile, and
+ * — last, only for a stage that cannot write — the read-only notice.
  *
  * The directory line earns its keep. Replacing the provider's default prompt
  * also drops its environment section, and without it the model guesses absolute
  * paths from filesystem root — burning two failed reads before finding a file.
+ *
+ * The read-only notice sits after the profile rather than right after the
+ * directory line so a read-only and a writable stage's prompts share the
+ * longest possible identical run of text. A provider that caches its own
+ * request by longest-common-prefix gets nothing from a match at the *end* of
+ * the string; with the one line that differs moved last, a writable stage's
+ * entire prompt is now an exact prefix of a read-only stage's — role,
+ * directory and profile can all be served from that cache regardless of which
+ * kind of stage asks next, where before the prefix broke immediately after
+ * "Working directory" and the profile behind it was foreign to it either way.
  */
 export function systemPrompt(cwd: string, canWrite = false): string {
   return `${ROLE}
 
 Working directory: ${cwd}
 Paths you use must be relative to it, or absolute beneath it.
-${canWrite ? '' : READ_ONLY}
 
-${loadProfile()}`;
+${loadProfile()}${canWrite ? '' : `\n${READ_ONLY}`}`;
 }
 
 export const DO_STAGE = (task: string, context = '') =>

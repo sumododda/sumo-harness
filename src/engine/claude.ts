@@ -8,6 +8,7 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { HookJSONOutput, Options, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import * as features from '../features.ts';
 import { runGit, screenGit } from '../git-tool.ts';
 import type { Capability, Engine, StageRequest } from './types.ts';
 import { type StageResult, SumoError, type Tier } from '../types.ts';
@@ -38,6 +39,34 @@ const TOOLS: Record<Capability, readonly string[]> = {
   // answer is no longer reproducible from the repo alone.
   web: ['WebSearch', 'WebFetch'],
 };
+
+/**
+ * `read`/`search`/`edit`, granted to every stage once `stableToolList` is on,
+ * so the tool-definitions block — part of the exact prefix a provider's own
+ * cache matches on — stops changing between a task's read-only and writable
+ * stages. `buildGate`'s `PreToolUse` hook is unchanged and is still the only
+ * thing that refuses `Edit`/`Write` on a read-only stage; this only decides
+ * what appears in the model's context, trading that layer of defence away for
+ * cache stability, behind a flag that can turn it straight back on.
+ *
+ * `git` and `web` are deliberately left out of the stable set and stay
+ * capability-driven. They are already granted to one stage per task rather
+ * than every stage for reasons that have nothing to do with caching — `git`
+ * only ever reaches the repo through the screened MCP tool below, and `web`
+ * is the one capability whose answer cannot be re-derived from the repo (see
+ * `RESEARCH_STAGE` in prompts.ts). Adding them everywhere would widen what
+ * every stage can reach by default, which is a bigger and less obviously safe
+ * change than this brief is measuring.
+ */
+const STABLE_CAPABILITIES: readonly Capability[] = ['read', 'search', 'edit'];
+
+/** The SDK tool names granted for a stage's capabilities. */
+export function toolsFor(capabilities: readonly Capability[]): string[] {
+  const granted = features.get().stableToolList
+    ? [...new Set([...STABLE_CAPABILITIES, ...capabilities])]
+    : capabilities;
+  return [...new Set(granted.flatMap((c) => TOOLS[c]))];
+}
 
 export class ClaudeEngine implements Engine {
   readonly name = 'claude';
@@ -72,7 +101,7 @@ export class ClaudeEngine implements Engine {
     const model = this.modelFor(req.rung.tier);
     const effort = this.supportsEffort(req.rung.tier) ? req.rung.effort : undefined;
 
-    const tools = [...new Set(req.capabilities.flatMap((c) => TOOLS[c]))];
+    const tools = toolsFor(req.capabilities);
 
     // Recorded by the gate hook, so a refusal is provable after the fact.
     const denials: string[] = [];
