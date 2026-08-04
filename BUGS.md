@@ -843,6 +843,79 @@ That requires a live `SUMO_E2E=1` `sumo bench` comparison, which costs real
 money and was explicitly deferred here, the same way entry #22 deferred its
 own live measurement.
 
+### 36. Every failed rung-attempt escalated the same way, whether the failure was a detail or a sign the model can't do this · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+`escalate.ts`'s `afterFailure` retried once at the same rung, then climbed,
+regardless of *why* the attempt failed — a typo in the fix and a fundamentally
+wrong approach were escalated on the identical schedule. Published
+cascaded-judge results report that a cheap, calibrated judge can gate
+escalation with high agreement even where the strong model alone could not
+tell the two apart, which is a case for asking before paying for a retry the
+judge already doubts will help.
+
+**What's in now.** A tiny new schema, `EscalationVerdict` (`schemas.ts`) —
+one enum field, `nearMiss | capabilityFailure`, deliberately with no free-text
+reasoning field, because the whole point is that asking has to cost close to
+nothing. `fix.ts`'s new `judgeEscalation` runs it as one extra stage
+(`ESCALATION_JUDGE_STAGE`, `prompts.ts`) right before the existing
+`afterFailure(ladder)` call, behind `features.escalationJudge`: no tools
+(`capabilities: []`), the cheapest tier, `maxTurns: 3`, `maxBudgetUsd: 0.02` —
+modelled directly on `repl.ts`'s own route classifier, the one other place
+this harness already asks a cheap, disposable question of a model. Every way
+it can go wrong — the stage throws, hits its turn or budget cap, or answers
+something `EscalationVerdict` doesn't parse — is caught and treated as
+`nearMiss`, today's exact behaviour, in `judgeEscalation` itself; nothing
+above or below the one call site in `fixUntilVerified` changed.
+
+`afterFailure` gained a second, optional parameter,
+`verdict?: 'nearMiss' | 'capabilityFailure'`. Omitted, or `'nearMiss'`, it is
+byte-for-byte the function that shipped before this brief — every existing
+test in `escalate.test.ts` and `escalate-loop.test.ts` passes unmodified. On a
+confident `capabilityFailure`, two things change: the same-rung retry is
+skipped outright (escalating immediately, as if the retry had already been
+spent), and if the ladder's very next rung would only be a same-tier effort
+bump — `mid/low → mid/high` or `large/medium → large/high`, the two places
+`LADDER` repeats a tier before moving on — the climb skips past it to the rung
+beyond, landing on a genuine tier change instead of a step the judge already
+doubts will help. Either way this still counts as exactly one escalation
+against `MAX_ESCALATIONS`, never two, and a skip that would land past the top
+of the ladder gives up exactly as an ordinary climb off the top already does.
+
+**A discrepancy caught while implementing, not just found later.** The
+original brief for this entry described the same-tier skip as applying "at
+rungs 0 or 1." Mechanically applying "skip when the ladder's next rung has the
+same tier as the current one" to this project's actual `LADDER` shows that is
+only true of rung 1 (`mid/low`, whose next rung `mid/high` is the same tier)
+and, by the identical rule, rung 3 (`large/medium → large/high`). Rung 0's own
+escalation (`small → mid`) is already a tier change — skipping from there
+would land on `mid/high`, still `mid`, which is not a tier change at all and
+directly contradicts the stated goal. The implementation follows the
+mechanical rule everywhere (it is what every other sentence in the brief,
+including the rung-2 counter-example, is consistent with), and the tests below
+exercise rungs 0, 1, 2 and 3 individually rather than trusting the "0 or 1"
+phrasing.
+
+`src/schemas.ts`, `src/prompts.ts`, `src/escalate.ts`, `src/workflows/fix.ts`,
+`src/features.ts`, `src/bench.ts` (mechanical, to keep `Features` compiling) ·
+`test/escalate.test.ts` (7 new cases: every existing case unchanged under an
+explicit `nearMiss`, the retry-skip in isolation, the rung-1 same-tier skip —
+both fresh and after its own retry has already been spent — the rung-2
+non-skip, the escalation cap, and the rung-3 skip landing past the top of the
+ladder), `test/escalation-judge.test.ts`
+(5 new tests, offline against a stub engine and a real fixture repo, mirroring
+`test/candidate-sampling.test.ts`'s style: a scripted `capabilityFailure`
+verdict moves the very next `fix`-stage call to the escalated rung, watched by
+rung rather than by call count; the flag off never calls the judge stage at
+all; a judge that throws or answers unparseable text proceeds exactly as a
+`nearMiss` would) — plus every test in `escalate.test.ts`, `escalate-loop.test.ts`,
+`candidate-sampling.test.ts` and `fix-gates.test.ts` passing unmodified.
+
+**Still open:** same shape as #34 and #35 — everything above is proven
+offline. Whether a judge-informed ladder actually improves $/verified, versus
+its own extra (small) per-failure cost, is not measurable without a live
+`SUMO_E2E=1` `sumo bench` comparison, which costs real money and was
+deliberately not spent here.
+
 ### 21. Old progress files keep their stale `finished: true`
 
 With the branch-reuse fix in place, starting genuinely new work while standing on

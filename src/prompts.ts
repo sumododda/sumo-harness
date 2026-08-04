@@ -266,6 +266,26 @@ existing helpers named in the plan. Do not add error handling for situations
 that cannot occur.
 When done, reply with one line per file changed: <path> — <what changed>.`;
 
+/**
+ * A cheap advisory read on a failed fix attempt, run right before the ladder
+ * decides what to do next.
+ *
+ * No repository access and no context block: the question is entirely
+ * answerable from the root cause and the failing output already in hand, and
+ * giving it more would only make an intentionally near-free call slower.
+ */
+export const ESCALATION_JUDGE_STAGE = (rootCause: string, failingOutput: string) =>
+  `Root cause and fix that was attempted:
+${rootCause}
+
+Verification failed. What the test run showed:
+${failingOutput}
+
+Judge this failure. Is it a near miss the same approach could likely fix with
+another try at the same rung, or does it look like the current approach or
+model capability is insufficient and a stronger model is needed? Answer with
+the verdict only — no explanation.`;
+
 export const DISCUSS_STAGE = (proposal: string, question: string) =>
   `A proposal is on the table:
 ${proposal}

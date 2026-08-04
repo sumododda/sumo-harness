@@ -27,6 +27,8 @@ export interface Features {
   readonly stableToolList: boolean;
   /** When `fix` has a confirmed repro test, sample a second independent candidate before retrying. */
   readonly candidateSampling: boolean;
+  /** Ask a cheap judge whether a failed rung-attempt is a near miss or a capability failure, before escalating. */
+  readonly escalationJudge: boolean;
 }
 
 const ALL_ON: Features = {
@@ -39,6 +41,7 @@ const ALL_ON: Features = {
   cleanRetries: true,
   stableToolList: true,
   candidateSampling: true,
+  escalationJudge: true,
 };
 
 export const ALL_OFF: Features = {
@@ -51,6 +54,7 @@ export const ALL_OFF: Features = {
   cleanRetries: false,
   stableToolList: false,
   candidateSampling: false,
+  escalationJudge: false,
 };
 
 let current: Features = ALL_ON;

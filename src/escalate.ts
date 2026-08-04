@@ -11,7 +11,7 @@
  * at most twice before handing the problem back.
  */
 
-import { LADDER, type Rung, rungAt } from './types.ts';
+import { describeRung, LADDER, type Rung, rungAt } from './types.ts';
 
 export const MAX_ESCALATIONS = 2;
 const RETRIES_PER_RUNG = 1;
@@ -49,9 +49,21 @@ export type NextStep =
  * repeating the same attempt is just paying twice for the same answer, so the
  * ladder climbs — and a climb that crosses into a new tier is worth re-planning,
  * not merely re-implementing.
+ *
+ * `verdict` is an optional, cheap second opinion from src/workflows/fix.ts's
+ * judge stage on whether this specific failure looks fixable with another try
+ * or looks like the current approach/model can't do this. Omitted (or
+ * `nearMiss`) reproduces today's behaviour exactly — a caller that never
+ * passes it cannot tell this parameter exists.
  */
-export function afterFailure(state: LadderState): NextStep {
-  if (state.retries < RETRIES_PER_RUNG) {
+export function afterFailure(state: LadderState, verdict?: 'nearMiss' | 'capabilityFailure'): NextStep {
+  const confidentFailure = verdict === 'capabilityFailure';
+
+  // A same-rung retry is skipped outright on a confident capability failure:
+  // that kind of failure is not the detail-in-front-of-it fix a retry is for,
+  // so paying for one when the judge already expects it not to help is the
+  // exact cost asking the judge exists to avoid.
+  if (state.retries < RETRIES_PER_RUNG && !confidentFailure) {
     return {
       kind: 'retry',
       state: { ...state, retries: state.retries + 1 },
@@ -68,16 +80,24 @@ export function afterFailure(state: LadderState): NextStep {
     };
   }
 
-  const next = state.rung + 1;
+  const from = rungAt(state.rung);
+  // The ladder's very next rung is sometimes just more effort at the same
+  // tier (mid/low → mid/high, large/medium → large/high) — a move a confident
+  // capability failure has no reason to expect will help either. Skip past it
+  // to the rung beyond, which is guaranteed to be a genuine tier change,
+  // rather than spending the ladder's one remaining move landing somewhere
+  // the judge already doubts.
+  const skip = confidentFailure && rungAt(state.rung + 1).tier === from.tier;
+  const next = state.rung + (skip ? 2 : 1);
   if (next >= LADDER.length) {
     return { kind: 'giveUp', why: 'already at the strongest setting' };
   }
 
-  const from = rungAt(state.rung);
   const to = rungAt(next);
 
   return {
     kind: 'retry',
+    // One escalation, whether the climb moved one rung or two.
     state: { rung: next, retries: 0, escalations: state.escalations + 1 },
     rung: to,
     // A tier change means a different model, whose take on the plan may differ.
@@ -85,6 +105,8 @@ export function afterFailure(state: LadderState): NextStep {
     why:
       to.tier === from.tier
         ? `thinking harder (${from.effort ?? 'none'} → ${to.effort ?? 'none'})`
-        : `stepping up to ${to.tier}`,
+        : skip
+          ? `stepping up to ${to.tier}, skipping the ${describeRung(rungAt(state.rung + 1))} rung`
+          : `stepping up to ${to.tier}`,
   };
 }

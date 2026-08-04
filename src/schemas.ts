@@ -50,6 +50,21 @@ export const RootCause = z.object({
 });
 export type RootCause = z.infer<typeof RootCause>;
 
+/**
+ * A cheap second opinion on a failed rung-attempt: worth another try at the
+ * same approach, or a sign the approach or model can't do this. No free-text
+ * reasoning field — the whole point of asking is that it costs almost nothing.
+ */
+export const EscalationVerdict = z.object({
+  verdict: z
+    .enum(['nearMiss', 'capabilityFailure'])
+    .describe(
+      'nearMiss: the same approach could likely fix this with another try. ' +
+        'capabilityFailure: the current approach or model looks insufficient.',
+    ),
+});
+export type EscalationVerdict = z.infer<typeof EscalationVerdict>;
+
 /** What already exists that a new feature should build on. */
 export const Explore = z.object({
   files: z.array(z.string()).describe('the files this task touches'),
