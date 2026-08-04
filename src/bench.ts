@@ -63,6 +63,7 @@ const CONFIGS: Record<string, Features> = {
     cleanRetries: true,
     stableToolList: true,
     candidateSampling: true,
+    escalationJudge: true,
   },
 };
 

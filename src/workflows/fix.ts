@@ -25,13 +25,14 @@ import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
 import {
   DISCUSS_STAGE,
+  ESCALATION_JUDGE_STAGE,
   EVIDENCE_STAGE,
   feedbackBlock,
   FIX_STAGE,
   ROOT_CAUSE_STAGE,
 } from '../prompts.ts';
 import * as runner from '../runner.ts';
-import { Evidence, jsonSchema, RootCause } from '../schemas.ts';
+import { EscalationVerdict, Evidence, jsonSchema, parse as parseSchema, RootCause } from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
@@ -262,6 +263,45 @@ async function revertTaskChanges(
 }
 
 /**
+ * A cheap, fail-safe read of whether a failed attempt is a near miss or a
+ * sign the current approach/model can't do this — see BUGS.md.
+ *
+ * Modelled on repl.ts's own route classifier: no tools, capped turns and
+ * budget, cheapest tier. Every way this can go wrong — the stage throws, hits
+ * its turn or budget cap, or answers something that doesn't parse — falls
+ * back to `nearMiss`, today's exact behaviour, so a judge failure can never
+ * block, slow, or change the outcome beyond this one extra cheap call. Never
+ * retried: one call, whatever it answers.
+ */
+async function judgeEscalation(
+  rootCause: string,
+  output: string,
+  previous: failures.Failure[],
+  ctx: FixContext,
+): Promise<'nearMiss' | 'capabilityFailure'> {
+  const table = failures.toPrompt(failures.parse(output), previous);
+  try {
+    const result = await runStage(
+      ctx.engine,
+      {
+        name: 'judge',
+        prompt: ESCALATION_JUDGE_STAGE(rootCause, table === '' ? output : table),
+        rung: { tier: 'small' },
+        capabilities: [],
+        cwd: ctx.cwd,
+        maxTurns: 3,
+        maxBudgetUsd: 0.02,
+        outputSchema: jsonSchema(EscalationVerdict),
+      },
+      ctx.ledger,
+    );
+    return parseSchema(EscalationVerdict, result.output)?.verdict ?? 'nearMiss';
+  } catch {
+    return 'nearMiss';
+  }
+}
+
+/**
  * Applies the fix, then lets the test suite decide whether to try again, try
  * harder, or stop. The model never gets a say in whether its own work passed.
  */
@@ -327,12 +367,21 @@ async function fixUntilVerified(
     // change is unverified is more honest than retrying against no evidence.
     if (!ctx.testCommand) return outcome;
 
+    // A cheap second opinion on whether this specific failure is worth a
+    // same-rung retry at all, before paying for one. Entirely optional to the
+    // ladder below: omitted, `afterFailure` behaves exactly as it did before
+    // this existed.
+    const verdict =
+      features.get().escalationJudge && ctx.testCommand
+        ? await judgeEscalation(rootCause, ctx.state.read('verify.txt') ?? '', previous, ctx)
+        : undefined;
+
     // One rung, one call to the ladder — whether this attempt tried one
     // candidate or two. Sampling changes what happens above this line, never
     // how many attempts the ladder's own retry budget sees; two candidates
     // that both fail are one failed attempt, exactly as a single failed fix
     // is today.
-    const step = afterFailure(ladder);
+    const step = afterFailure(ladder, verdict);
     if (step.kind === 'giveUp') {
       await reportGiveUp(step.why, ctx);
       return { kind: 'stopped', why: step.why };
