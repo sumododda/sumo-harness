@@ -60,6 +60,7 @@ const CONFIGS: Record<string, Features> = {
     deltaRetries: true,
     targetedEdits: true,
     skeletonContext: true,
+    cleanRetries: true,
   },
 };
 

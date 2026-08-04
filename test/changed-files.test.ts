@@ -9,11 +9,11 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { changedFiles, run } from '../src/runner.ts';
+import { changedFiles, revertChanges, run } from '../src/runner.ts';
 
 async function repo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'sumo-changed-'));
@@ -102,6 +102,72 @@ test('outside a git repo it reports nothing rather than throwing', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'sumo-nogit-changed-'));
   try {
     assert.deepEqual(await changedFiles(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('revertChanges restores a tracked file to its committed content', async () => {
+  const dir = await repo();
+  try {
+    writeFileSync(join(dir, 'cart.js'), 'export const rate = 0.99;\n', 'utf8');
+    await revertChanges(dir, ['cart.js']);
+
+    assert.equal(readFileSync(join(dir, 'cart.js'), 'utf8'), 'export const rate = 0.1;\n');
+    assert.deepEqual(await changedFiles(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('revertChanges deletes an untracked file rather than leaving it behind', async () => {
+  const dir = await repo();
+  try {
+    writeFileSync(join(dir, 'stray.js'), 'oops\n', 'utf8');
+    // A plain `git checkout --` would not touch this file at all — git has no
+    // version of it to restore from — which is exactly the bug this guards
+    // against: a failed attempt's brand-new file surviving its own "revert".
+    await revertChanges(dir, ['stray.js']);
+
+    assert.equal(existsSync(join(dir, 'stray.js')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('revertChanges only touches the files it is given', async () => {
+  const dir = await repo();
+  try {
+    writeFileSync(join(dir, 'cart.js'), 'export const rate = 0.99;\n', 'utf8');
+    writeFileSync(join(dir, 'money.js'), 'export const zero = 1;\n', 'utf8');
+    await revertChanges(dir, ['cart.js']);
+
+    assert.equal(readFileSync(join(dir, 'cart.js'), 'utf8'), 'export const rate = 0.1;\n');
+    // Untouched: not in the list handed to revertChanges.
+    assert.equal(readFileSync(join(dir, 'money.js'), 'utf8'), 'export const zero = 1;\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('revertChanges outside a git repo does nothing rather than throwing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sumo-nogit-revert-'));
+  try {
+    writeFileSync(join(dir, 'stray.js'), 'oops\n', 'utf8');
+    await revertChanges(dir, ['stray.js']);
+    // No git to revert against, so nothing is touched — not even deleted.
+    assert.equal(existsSync(join(dir, 'stray.js')), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('revertChanges with no files does nothing', async () => {
+  const dir = await repo();
+  try {
+    writeFileSync(join(dir, 'cart.js'), 'export const rate = 0.99;\n', 'utf8');
+    await revertChanges(dir, []);
+    assert.equal(readFileSync(join(dir, 'cart.js'), 'utf8'), 'export const rate = 0.99;\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

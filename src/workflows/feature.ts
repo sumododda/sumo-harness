@@ -15,6 +15,7 @@ import pc from 'picocolors';
 import type { Engine } from '../engine/index.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
+import * as features from '../features.ts';
 import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gate.ts';
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
@@ -178,6 +179,7 @@ export async function runFeature(
       'The approved plan specifies no tests: this change has no testable behaviour.',
       preExisting,
       [],
+      alreadyChanged,
       rung,
       branch,
       ctx,
@@ -221,6 +223,7 @@ export async function runFeature(
     baseline.output,
     preExisting,
     testFiles,
+    alreadyChanged,
     rung,
     branch,
     ctx,
@@ -237,6 +240,7 @@ async function implementUntilVerified(
   failingOutput: string,
   preExisting: string | null,
   testFiles: readonly string[],
+  alreadyChanged: ReadonlySet<string>,
   rung: Rung,
   branch: string | null,
   ctx: FeatureContext,
@@ -321,6 +325,17 @@ async function implementUntilVerified(
     const table = failures.toPrompt(parsed, previous);
     previous = parsed;
     testOutput = table === '' ? final.output : table;
+
+    // The next prompt describes a clean task, but the disk still holds
+    // whatever the failed attempt wrote — revert exactly that, so the next
+    // attempt actually starts from the tree the prompt claims it does. The
+    // locked test files must survive every retry regardless, or the
+    // test-first guarantee they exist to enforce would not.
+    if (features.get().cleanRetries) {
+      const nowChanged = new Set(await runner.changedFiles(ctx.cwd));
+      const toRevert = [...nowChanged].filter((f) => !alreadyChanged.has(f) && !testFiles.includes(f));
+      await runner.revertChanges(ctx.cwd, toRevert);
+    }
   }
 }
 

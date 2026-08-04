@@ -8,7 +8,8 @@
 
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { rm } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -276,21 +277,76 @@ export function screenProposedCommand(command: string): CommandScreening {
  * loses entries rather than merely shortening a message.
  */
 export async function changedFiles(cwd: string): Promise<string[]> {
+  const { tracked, untracked } = await splitChangedFiles(cwd);
+  return [...new Set([...tracked, ...untracked])].sort();
+}
+
+/**
+ * {@link changedFiles}, kept apart rather than unioned.
+ *
+ * `changedFiles` collapses the two into one list because most callers only
+ * care *whether* something changed; {@link revertChanges} needs them apart,
+ * because the two halves are undone in opposite ways.
+ */
+async function splitChangedFiles(
+  cwd: string,
+): Promise<{ readonly tracked: string[]; readonly untracked: string[] }> {
   const [tracked, untracked] = await Promise.all([
     runUntruncated('git diff --name-only HEAD', cwd, 10_000),
     runUntruncated('git ls-files --others --exclude-standard', cwd, 10_000),
   ]);
 
-  const files = new Set<string>();
-  for (const result of [tracked, untracked]) {
-    if (!result.ok) continue;
-    for (const line of result.output.split('\n')) {
-      const path = line.trim();
-      if (path.length > 0) files.add(path);
+  const lines = (result: CommandResult): string[] =>
+    result.ok ? result.output.split('\n').map((line) => line.trim()).filter((path) => path.length > 0) : [];
+
+  return { tracked: lines(tracked), untracked: lines(untracked) };
+}
+
+/**
+ * Restores exactly the given files to how they were before this task's own
+ * stages touched them.
+ *
+ * A tracked file is checked out from `HEAD`. That is not enough on its own:
+ * `git checkout --` only restores a path git already has a version of, so a
+ * file a failed attempt created from nothing is invisible to it and would be
+ * left sitting on disk — precisely the mess this exists to clean up. An
+ * untracked file is deleted instead.
+ *
+ * Does nothing when git cannot say what changed — outside a repository, or
+ * when both underlying queries fail — rather than reverting on a guess.
+ */
+export async function revertChanges(cwd: string, files: readonly string[]): Promise<void> {
+  if (files.length === 0) return;
+
+  const { tracked, untracked } = await splitChangedFiles(cwd);
+  if (tracked.length === 0 && untracked.length === 0) return;
+
+  const wanted = new Set(files);
+  const trackedToRevert = tracked.filter((f) => wanted.has(f));
+  const untrackedToDelete = untracked.filter((f) => wanted.has(f));
+
+  if (trackedToRevert.length > 0) {
+    try {
+      await exec('git', ['checkout', '--', ...trackedToRevert], { cwd, timeout: 15_000, env: childEnv() });
+    } catch {
+      // Best-effort: a checkout that failed leaves those files as they were,
+      // which is no worse than not having tried.
     }
   }
 
-  return [...files].sort();
+  for (const file of untrackedToDelete) {
+    // Every path here came from git's own listing inside cwd, so this should
+    // never trip — kept anyway, the same confinement check gate-tools.ts's
+    // isInside uses before a write, mirrored here before a delete.
+    if (!isInside(cwd, file)) continue;
+    await rm(resolve(cwd, file), { force: true });
+  }
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const abs = isAbsolute(candidate) ? candidate : resolve(root, candidate);
+  const rel = relative(root, abs);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 /**

@@ -21,6 +21,8 @@ export interface Features {
   readonly targetedEdits: boolean;
   /** Give survey stages symbol skeletons of their candidate files, ahead of full bodies. */
   readonly skeletonContext: boolean;
+  /** Revert a retry's own changes before the next attempt, so it starts from a clean tree. */
+  readonly cleanRetries: boolean;
 }
 
 const ALL_ON: Features = {
@@ -30,6 +32,7 @@ const ALL_ON: Features = {
   deltaRetries: true,
   targetedEdits: true,
   skeletonContext: true,
+  cleanRetries: true,
 };
 
 export const ALL_OFF: Features = {
@@ -39,6 +42,7 @@ export const ALL_OFF: Features = {
   deltaRetries: false,
   targetedEdits: false,
   skeletonContext: false,
+  cleanRetries: false,
 };
 
 let current: Features = ALL_ON;
