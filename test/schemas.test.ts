@@ -24,6 +24,7 @@ const EVIDENCE = {
   observations: [{ file: 'src/cart.js', line: 12, what: 'multiplies by percent, not percent/100' }],
   suspects: ['applyDiscount'],
   repro: 'node -e "console.log(require(\'./cart\').applyDiscount(1000,25))"',
+  reproTest: null,
   hypotheses: ['the divisor is missing'],
 };
 
@@ -67,6 +68,19 @@ test('repro is optional but explicit', () => {
   assert.equal(parse(Evidence, JSON.stringify({ ...EVIDENCE, repro: undefined })), null);
 });
 
+test('reproTest is optional but explicit, same as repro', () => {
+  const withTest = {
+    ...EVIDENCE,
+    reproTest: { file: 'test/cart.test.js', content: 'it fails today' },
+  };
+  const parsed = parse(Evidence, JSON.stringify(withTest));
+  assert.deepEqual(parsed?.reproTest, withTest.reproTest);
+
+  const nulled = parse(Evidence, JSON.stringify({ ...EVIDENCE, reproTest: null }));
+  assert.equal(nulled?.reproTest, null, 'null is a valid answer; absent is not');
+  assert.equal(parse(Evidence, JSON.stringify({ ...EVIDENCE, reproTest: undefined })), null);
+});
+
 test('evidence renders with its observations as a table', () => {
   const rendered = renderEvidence(EVIDENCE);
 
@@ -77,9 +91,26 @@ test('evidence renders with its observations as a table', () => {
 });
 
 test('an empty section says so rather than rendering an empty table', () => {
-  const rendered = renderEvidence({ observations: [], suspects: [], repro: null, hypotheses: [] });
+  const rendered = renderEvidence({
+    observations: [],
+    suspects: [],
+    repro: null,
+    reproTest: null,
+    hypotheses: [],
+  });
   assert.match(rendered, /Observations:\s+none/);
   assert.match(rendered, /Repro:\s+none/);
+  assert.match(rendered, /Repro test:\s+none/);
+});
+
+test('a repro test renders with its file and full content', () => {
+  // The full content reaches the prompt — unlike the screen (see
+  // test/display.test.ts), the next stage genuinely needs it.
+  const withTest = { ...EVIDENCE, reproTest: { file: 'test/cart.test.js', content: "assert(applyDiscount(1000, 25) === 750);" } };
+  const rendered = renderEvidence(withTest);
+  assert.match(rendered, /Repro test:/);
+  assert.match(rendered, /test\/cart\.test\.js/);
+  assert.match(rendered, /assert\(applyDiscount/);
 });
 
 test('the other three render their tables too', () => {

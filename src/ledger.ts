@@ -32,6 +32,8 @@ export interface Summary {
   readonly stages: number;
   readonly retries: number;
   readonly escalations: number;
+  /** Extra `fix` candidates sampled at a rung beyond the first — see `noteCandidate`. */
+  readonly candidates: number;
   readonly totalUsd: number;
   readonly savedUsd: number;
   readonly inputTokens: number;
@@ -43,6 +45,7 @@ export interface Summary {
 export class Ledger {
   private readonly rows: StageResult[] = [];
   private escalations = 0;
+  private candidates = 0;
 
   add(result: StageResult): void {
     this.rows.push(result);
@@ -59,6 +62,16 @@ export class Ledger {
    */
   noteEscalation(): void {
     this.escalations += 1;
+  }
+
+  /**
+   * Records that `fix` sampled an extra candidate at a rung, mirroring
+   * {@link noteEscalation}'s shape: this is meta-information about the
+   * workflow's own loop, not a property of any one stage's `StageResult`, so
+   * only the workflow can say when it happened.
+   */
+  noteCandidate(): void {
+    this.candidates += 1;
   }
 
   /**
@@ -87,6 +100,9 @@ export class Ledger {
       stages: slice.length,
       retries: slice.filter((r) => (r.attempt ?? 0) > 0).length,
       escalations: this.escalations,
+      // Unscoped by `from`, same as `escalations` above — both are counters
+      // for the session's ladder, not per-stage rows this slice can filter.
+      candidates: this.candidates,
       totalUsd: sum((r) => r.costUsd),
       savedUsd: sum((r) => r.savedUsd ?? 0),
       inputTokens: sum((r) => r.inputTokens),
@@ -166,6 +182,9 @@ export class Ledger {
     // distinct from "reused" above: that is this harness's own exact-result
     // cache, this is the provider's, and the two must never read as one number.
     if (summary.cacheReadTokens > 0) notes.push(`${summary.cacheReadTokens} pcache`);
+    if (summary.candidates > 0) {
+      notes.push(`${summary.candidates} extra ${plural(summary.candidates, 'candidate', 'candidates')}`);
+    }
 
     return [
       line(head, true),

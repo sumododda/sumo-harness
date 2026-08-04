@@ -31,6 +31,7 @@ function summary(overrides: Partial<CycleResult['summary']> = {}): CycleResult['
     stages: 1,
     retries: 0,
     escalations: 0,
+    candidates: 0,
     totalUsd: 0,
     savedUsd: 0,
     inputTokens: 0,

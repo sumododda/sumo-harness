@@ -126,7 +126,13 @@ Any code shown above was selected by the repository's index — start from it an
 open further files only when it is not enough.${skeletonHint()} Report what you
 actually observed along the failing path.
 If a single command would demonstrate the problem, propose it — the harness
-will run it, not you. At most three hypotheses, each tied to an observation.`;
+will run it, not you.
+If a new-or-existing test file would demonstrate the bug, propose its file
+path and full content — the harness writes and runs it, never you. It must be
+expected to fail right now, against the code as it stands. This is optional:
+leave it null when nothing test-shaped fits, e.g. a UI or manual-only bug —
+forcing one where none applies is worse than proposing none.
+At most three hypotheses, each tied to an observation.`;
 
 export const ROOT_CAUSE_STAGE = (bug: string, evidence: string, repro: string) =>
   `Reported problem: ${bug}

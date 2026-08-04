@@ -82,3 +82,12 @@ test('a writable prompt is an exact prefix of the read-only variant of the same 
   );
   assert.ok(readOnly.length > writable.length);
 });
+
+test('the evidence stage asks for a reproduction test, and says it is optional', () => {
+  const prompt = EVIDENCE_STAGE('crashes on save');
+
+  assert.match(prompt, /test file/i);
+  assert.match(prompt, /harness writes and runs it/i, 'says who runs it, not just who does not');
+  assert.match(prompt, /null/i, 'optionality is spelled out, not implied');
+  assert.match(prompt, /expected to fail/i);
+});

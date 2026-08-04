@@ -20,7 +20,7 @@ function targetPath(input: Record<string, unknown>): string | null {
   return null;
 }
 
-function isInside(root: string, candidate: string): boolean {
+export function isInside(root: string, candidate: string): boolean {
   const abs = isAbsolute(candidate) ? candidate : resolve(root, candidate);
   const rel = relative(root, abs);
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
@@ -46,7 +46,7 @@ const CREDENTIAL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)(service[-_]?account|credentials)[^/]*\.json$/i,
 ];
 
-function isCredentialPath(path: string): boolean {
+export function isCredentialPath(path: string): boolean {
   return CREDENTIAL_PATH_PATTERNS.some((pattern) => pattern.test(path));
 }
 
@@ -69,6 +69,21 @@ function writtenContent(toolName: string, input: Record<string, unknown>): strin
   const field = toolName === 'Edit' ? 'new_string' : 'content';
   const value = input[field];
   return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Finds a secret-shaped pattern in content, if any.
+ *
+ * Exported rather than kept as an inline check because `fix.ts` needs the
+ * identical test: a proposed repro test's content reaches disk directly from
+ * a schema field, with no Edit/Write tool call for this gate to intercept, so
+ * that write path has to run the same screening itself or it would be the one
+ * write path in the harness with none of it. Sharing the function is what
+ * keeps the two from quietly drifting apart the way two copies of the same
+ * regex eventually do.
+ */
+export function findSecret(content: string): { readonly label: string } | null {
+  return SECRET_CONTENT_PATTERNS.find(({ pattern }) => pattern.test(content)) ?? null;
 }
 
 export interface GateOptions {
@@ -168,7 +183,7 @@ export function buildGate(opts: GateOptions): ToolGate {
       return `${target} is locked for this stage. Change the implementation so the existing tests pass — do not edit the tests.`;
     }
 
-    const matchedSecret = SECRET_CONTENT_PATTERNS.find(({ pattern }) => pattern.test(writtenContent(toolName, input)));
+    const matchedSecret = findSecret(writtenContent(toolName, input));
     if (matchedSecret) {
       return `Write refused: this looks like it contains ${matchedSecret.label}. Use an environment variable or placeholder instead.`;
     }

@@ -25,6 +25,8 @@ export interface Features {
   readonly cleanRetries: boolean;
   /** Grant every stage the same tool list, so a provider's prefix cache survives stage to stage. */
   readonly stableToolList: boolean;
+  /** When `fix` has a confirmed repro test, sample a second independent candidate before retrying. */
+  readonly candidateSampling: boolean;
 }
 
 const ALL_ON: Features = {
@@ -36,6 +38,7 @@ const ALL_ON: Features = {
   skeletonContext: true,
   cleanRetries: true,
   stableToolList: true,
+  candidateSampling: true,
 };
 
 export const ALL_OFF: Features = {
@@ -47,6 +50,7 @@ export const ALL_OFF: Features = {
   skeletonContext: false,
   cleanRetries: false,
   stableToolList: false,
+  candidateSampling: false,
 };
 
 let current: Features = ALL_ON;

@@ -62,6 +62,7 @@ const CONFIGS: Record<string, Features> = {
     skeletonContext: true,
     cleanRetries: true,
     stableToolList: true,
+    candidateSampling: true,
   },
 };
 
@@ -339,6 +340,7 @@ function total(summaries: readonly Summary[]): Summary {
     stages: sum((s) => s.stages),
     retries: sum((s) => s.retries),
     escalations: sum((s) => s.escalations),
+    candidates: sum((s) => s.candidates),
     totalUsd: sum((s) => s.totalUsd),
     savedUsd: sum((s) => s.savedUsd),
     inputTokens: sum((s) => s.inputTokens),
@@ -492,6 +494,8 @@ export interface MetricsLine {
   readonly stages: number;
   readonly retries: number;
   readonly escalations: number;
+  /** Absent on lines written before candidate sampling existed. */
+  readonly candidates?: number;
   readonly totalUsd: number;
   readonly savedUsd: number;
   readonly inputTokens: number;
@@ -541,6 +545,7 @@ export function aggregateMetrics(lines: readonly MetricsLine[]): Row[] {
         stages: l.stages,
         retries: l.retries,
         escalations: l.escalations,
+        candidates: l.candidates ?? 0,
         totalUsd: l.totalUsd,
         savedUsd: l.savedUsd,
         inputTokens: l.inputTokens,
