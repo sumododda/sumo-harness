@@ -449,7 +449,7 @@ those files while a fix is in progress.
 
 ---
 
-### 28. New work continued on a branch named for an unrelated old task · FIXED
+### 29. New work continued on a branch named for an unrelated old task · FIXED
 
 From a real session:
 
@@ -480,7 +480,214 @@ the operator's branch — the way out is one command, and it is named.
 
 ---
 
-### 34. `/resume` re-asked evidence and explore just to reach the same gate again · FIXED
+### 30. The routing log recorded corrections and used none of them · FIXED
+
+`routing-log.ts` said so in its own doc comment: *"This is a log, not a
+learner. Nothing here changes how a turn is routed."* Every `/again <mode>`
+recorded ground truth — the exact input, the route it needed instead — and the
+local router went on comparing every input to the same shipped centroids
+regardless, built from generic phrasing that is out of distribution for any
+one operator's vocabulary by construction.
+
+**Fix:** `routeLocally` now reads a repo's own corrections at startup and
+folds each one into the *corrected* label's centroid before it is normalised
+back to unit length — a per-repo overlay on top of the shipped corpus, kept
+entirely separate from it in memory so a bad correction never touches another
+repo. Each correction counts for 0.3 of a shipped example, not 1: weighing it
+the same as a real example already flipped two of the 64 held-out phrasings in
+`test/route.test.ts` under a correction log about something unrelated, because
+a couple of their margins sit within a thousandth of the gate. 0.3 left that
+set untouched while still being enough for five corrections that agree to
+flip a genuinely borderline phrase, margin to spare. `MIN_MARGIN` is
+unchanged — the overlay changes what the router believes, never how sure it
+has to be before it says so. `src/route/local.ts`, `src/routing-log.ts` ·
+5 tests, including one asserting an unrelated correction log leaves the
+held-out set exactly as it was, and one asserting a missing or corrupt log
+degrades to the shipped centroids rather than throwing.
+
+---
+
+### 22. Explore is expensive on a repo with large files · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+On `sumo-news`: explore `$0.1392` / 31s, plan `$0.0951` / 18s, for what became a
+one-file documentation edit. Both stages read `settings/page.tsx` in full on top
+of the index pack — the pack is meant to displace a `Read`, and on a repo with
+large files it was only adding to one.
+
+**What's in now.** `CodeGraphContext.skeleton(paths)` reads the `signature`
+column CodeGraph's own extraction already computed — name, parameters, line —
+for every function, method, class, interface, and exported constant in a file,
+and none of the body. It costs no new parsing: `getNodesInFile` is a query
+against data the index already holds.
+
+It is wired into `pack()`, not bolted beside it: `pack` now skeletonises the
+same candidate files `findRelevantContext` selects for the code samples it
+already returns — the exact selection, not a second guess at one — and puts the
+skeleton ahead of those samples. Because it rides inside `pack`'s own return
+value, `explore` and `evidence` get it for free through the plumbing that
+already exists (`packFor` → `packContext` → `EXPLORE_STAGE` / `EVIDENCE_STAGE`);
+no workflow file had to change. Both stages also gained one sentence — present
+only when the flag is on — saying plainly that a body is available by naming
+the symbol, not by reading the whole file.
+
+Gated behind `features.ts`'s `skeletonContext` (on by default), so `sumo bench`
+can compare configurations with and without it.
+
+**What's still open.** Nothing above has a dollar figure attached. The Verify
+step for this brief was explicit that assembling the mechanism does not close
+this bug — closing it means running `explore` on a large-file repo with the
+flag on and off and recording both costs, which spends real money and has to
+happen under `SUMO_E2E=1`, deliberately not run by this brief. Until that
+number exists, treat this as *should* help, not *measured* to.
+
+`src/context/codegraph.ts`, `src/prompts.ts`, `src/features.ts` ·
+`test/skeleton.test.ts`, `test/prompts.test.ts` — 6 tests, offline: the
+skeleton names every exported signature and carries no function or method
+body, and is materially smaller than the file it summarises; the flag gates
+both the skeleton block in `pack()` and the hint sentence in `explore`/
+`evidence`, with everything else in those prompts byte-identical when it is
+off.
+
+---
+
+### 31. `sumo bench` reported $/verified from a single run, and `.sumo/metrics.jsonl` was write-only · FIXED
+
+The README says *"the last column is the one that decides anything,"* and
+`sumo bench` printed exactly one of it per configuration — one run of three
+fixtures, one seeded bug each. At that sample size, "3/3 verified" and "2/3
+verified" are indistinguishable from noise: a model is stochastic, and nothing
+in the output said whether a $/verified difference between `baseline` and
+`full` was real or just which retry sequence the model happened to draw that
+run.
+
+The corpus was thin the same way. `TASKS` held one bug per language — the same
+whole-percentage discount bug in `ts-app`, `py-app`, and `go-app` — so every
+`sumo bench` claim generalised from n=3.
+
+And the other half of the evidence went unread. Every `/fix`, `/feature`, and
+`/do` session appends a line to `.sumo/metrics.jsonl` — mode, verified, cost,
+tokens, retries — specifically so the same $/verified discipline could be
+checked against real work instead of only fixtures. Nothing ever aggregated
+it; it sat on disk, growing, unconsulted.
+
+**Fix, in three parts.**
+
+`--repeat N` runs each (config, task) pair N times instead of once and reports
+the mean *and* the spread — min–max per cell, not a single number. Two
+configurations whose $/verified ranges overlap are now named explicitly:
+
+    baseline and full are not distinguishable — their $/verified ranges overlap.
+
+so a real difference and a coin flip no longer look the same in the table.
+
+`sumo bench --from-metrics` aggregates `.sumo/metrics.jsonl` as it already is
+— no new format, no provider calls — grouped by mode:
+
+    mode     verified     in   out  retries    total  $/verified
+    chat          0/2     18  1070        0  $0.0228           —
+    fix           2/3  14200  2130        3  $0.1642     $0.0821
+    do            2/2   1050   175        0  $0.0136     $0.0068
+
+And `TASKS` grew from 3 seeded bugs to 18 — five more per fixture, at mixed
+difficulty: a trivial one-line boundary check, a bug duplicated (and buggy the
+same way) across two files so fixing only one still fails the suite, and one
+bug per language chosen to be genuinely subtle rather than convenient — an
+async race in the JS memoizer, an exhausted iterator in the Python summarizer,
+a shared backing array in a Go slice split. A bench run no longer stands on
+one bug per language to make a claim about all of them.
+
+`src/bench.ts`, 15 new fixtures under `test/fixtures/` · 11 tests, all
+offline — the fixture replay itself is still gated behind `SUMO_E2E=1`,
+unchanged.
+
+---
+
+### 32. A red test in `fix` could be turned green by editing it, not the bug · FIXED
+
+`fix.ts`'s own module comment claims the ordering is "enforced here in code,
+not requested in a prompt." True of the approval gate, false of the test lock:
+the only thing stopping "make the failing test pass" from being satisfied by
+weakening the test itself was a sentence in `FIX_STAGE` — "do not modify
+tests" — read by the same model being asked to make the test pass. `feature.ts`
+closed exactly this hole with `lockedPaths` the day that field was added to
+`StageSpec`; `fix.ts` never got the port, so the property the docs claimed for
+the whole workflow did not hold for the one gate that mattered most.
+
+Two more gaps sat beside it, both already solved in `feature.ts` and never
+carried over. No pre-existing-failure baseline: `verify()` checks
+`outcome.passed`, all or nothing, so a repo with even one unrelated red test
+made a correct fix unverifiable forever — the ladder retried, escalated twice,
+and gave up on a failure the task did not cause. And no findings reuse: `plan`
+and `feature` skip re-surveying an unchanged repository for a retried task by
+matching `explore.md` against a fingerprint; `fix` writes `evidence.md` and
+never attempted the same trick, so a fix retried after a late failure re-paid
+for evidence gathering it already had.
+
+**Fix:** `fixUntilVerified` now locks whichever test files are currently
+failing — from `failures.testFiles` over the pre-existing and repro output —
+on every attempt, including the first. `runFix` runs the suite once before
+anything is written, same as `feature`'s `preExistingFailures`.
+`TaskState.findFindings` became `findArtifact(repo, task, fingerprint,
+filename)`, parameterised on the filename instead of hardcoding `explore.md`,
+so `fix` reuses `evidence.md` through the identical mechanism `plan` and
+`feature` already used.
+
+The first version of the pre-existing-failure check reused `feature.ts`'s
+exact shape — "only pre-existing failures remain" is verified — and shipped
+a second bug on top of the one it fixed. `feature` gets away with that check
+because the tests it locks are written *after* the baseline is taken, so a
+locked file can never appear in it. `fix` locks whatever was *already*
+failing, which means the bug's own regression test, if it has one, lands in
+the baseline exactly like any unrelated failure — and a fix attempt that
+changed nothing would see its own target test as "pre-existing" and verify
+itself. Caught before merge, not in a session: a fix that left a locked file's
+failure completely unchanged is never forgiven as pre-existing, whatever else
+in the baseline is; only a still-failing file outside `lockedPaths` — the
+kind `runner.failureLines` can see but no runner-specific parser resolves to
+a file at all — gets the benefit of the doubt. Narrower than first shipped,
+correctly so: distinguishing the bug's own test from a genuinely unrelated
+one needs evidence tying a failure to the report, which nothing here has yet.
+`src/workflows/fix.ts`, `src/state.ts` (`plan.ts` and `feature.ts` updated
+only at the call site) · 5 tests against the gate and ladder the workflow
+actually builds, including one asserting an unchanged locked failure is
+never waved through.
+
+---
+
+### 33. A retried attempt was handed a clean prompt against a dirty tree · FIXED
+
+`fixUntilVerified` and `implementUntilVerified` already retry cleanly on the
+model's side: a failed attempt's conversation is never carried forward, and
+the next stage starts fresh with only a failure-table summary. Neither
+workflow did the equivalent on disk. Whatever files the failed attempt
+actually wrote — a half-applied edit, a stray new file — stayed exactly where
+it left them, and the next prompt ("make exactly this change" /
+"implement the plan") read as if starting from a clean tree while the tree
+already held a previous, failed attempt's mess. The model had no way to know,
+because nothing told it.
+
+**Fix:** both workflows now compute `alreadyChanged` — what `git` already
+reported as changed before the task's own stages ran a single one — and, on
+each failed retry, revert everything the task has touched since that no
+longer belongs to the surviving state: `runner.revertChanges` restores a
+tracked file with `git checkout --` and deletes an untracked one outright,
+since `checkout --` only knows paths git already has a version of and would
+silently leave a brand-new file sitting on disk. `feature.ts`'s revert set
+additionally excludes the locked test files written this task, or the
+test-first guarantee would not survive its own retries. Gated behind
+`features.cleanRetries`, on by default.
+
+The property that mattered most and was tested first: a file already dirty
+before the task started — the operator's own in-flight work — is untouched by
+`alreadyChanged`'s exclusion and so survives every retry byte for byte,
+proven against the real retry loop rather than the set-difference logic in
+isolation. `src/runner.ts`, `src/workflows/fix.ts`, `src/workflows/feature.ts`,
+`src/features.ts` · 10 tests, including one running with no git repository at
+all to confirm the revert is skipped rather than guessed at.
+
+---
+
+### 37. `/resume` re-asked evidence and explore just to reach the same gate again · FIXED
 
 Bug #10 made a rejected task resumable at all — `/resume` would offer it back
 rather than only retyping it. But what it *did* on picking one back up was
@@ -513,9 +720,247 @@ from the task text, so `startBranch` rejoins the same branch on its own.
 stopped for any other reason — nothing produced, the ladder giving up after
 approval — still falls back to a full re-run exactly as before.
 
+A resumed `fix` specifically needed one more fix on top of what the branch
+shipped: its `resumeFrom` path called straight into the gate and then
+`fixUntilVerified`, skipping the `alreadyChanged`/`preExisting`/`lockedPaths`
+setup that #32 and #33 made load-bearing — a resumed fix would have run with
+no pre-existing-failure baseline, no locked test files, and no revert
+protection at all. Both `alreadyChanged` and `preExisting` are now computed
+unconditionally before the `resumeFrom` branch, exactly as the normal path
+already does, and `lockedPaths` is rebuilt from `preExisting` plus whatever
+`repro.txt` the original run persisted. `reproTestFile` is deliberately
+`null` on a resumed run — a confirmed repro test isn't itself persisted
+anywhere resume can recover it from, so a resumed fix loses candidate
+sampling but keeps every safety mechanism that doesn't depend on it.
+
 ---
 
 ## Open — not yet fixed
+
+### 34. A task's tool list changed stage to stage, which broke a provider's own prefix cache · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+Anthropic's prompt caching matches an exact prefix: system prompt, then tool
+definitions, then messages. `engine/claude.ts` built the tool list fresh per
+stage from `capabilities` — a read-only stage like `evidence` got `Read, Glob,
+Grep`; a writable stage like `fix`, later in the same task, got those plus
+`Edit, Write`. That tool-definitions block sits ahead of every message in the
+prefix a provider caches by, so the moment it changed, nothing before it —
+however identical — could be served from cache either.
+
+**What's in now.** `features.ts`'s `stableToolList` (on by default). When it's
+on, `engine/claude.ts`'s new `toolsFor(capabilities)` grants every stage
+`Read, Glob, Grep, Edit, Write` regardless of what it actually asked for, so
+the tool-definitions block stops varying within a task. `git` and `web` are
+deliberately excluded from that stable set and stay capability-driven: both
+are already scoped to one stage per task for reasons unrelated to caching
+(`git` only reaches the repo through a screened MCP tool; `web` is the one
+capability whose answer cannot be re-derived from the repository), and
+granting them everywhere by default would be a materially bigger change than
+this brief set out to make.
+
+Listing `Edit`/`Write` for a read-only stage sounds like it weakens
+enforcement, but `buildGate`'s `PreToolUse` hook never looks at the tool list
+— it decides purely from `allowWrites` and the call itself — so it refuses the
+write exactly as before. The trade is real (an unlisted tool cannot be called
+at all; a listed-but-gated one depends on the hook firing), but it is scoped
+to this flag alone and reverts the moment it's off.
+
+Separately, `prompts.ts`'s `systemPrompt` used to put the read-only notice
+between the working-directory line and the profile, so a read-only and a
+writable stage's prompts diverged almost immediately — the profile behind that
+point, often the largest part of the prompt, was foreign to the cache in both
+directions. Moving the notice to the very end makes a writable stage's whole
+prompt an exact prefix of a read-only stage's, which is the longest common run
+two variants of this string can share.
+
+`Ledger.render()`'s total line now names how many provider cache-read tokens a
+task used (`N pcache`, distinct from `$N reused`, which is this project's own
+separate exact-result cache — the two must never be read as the same saving),
+since `cacheReadTokens` was already collected per stage but never summed
+anywhere a human glances at.
+
+**What's still open.** Same as #22: nothing above has a dollar figure attached
+yet. Whether cache reads actually go up and cost actually goes down can only
+be shown against a live provider, under `SUMO_E2E=1`, and this brief
+deliberately did not spend money proving it. Until that run happens, treat
+this as *should* help, not *measured* to.
+
+`src/features.ts`, `src/engine/claude.ts`, `src/prompts.ts`, `src/ledger.ts`,
+`src/bench.ts` · `test/stable-tool-list.test.ts`, `test/prompts.test.ts`,
+`test/ledger.test.ts` — 7 tests, offline: the flag off leaves a read-only
+stage's tool list byte-for-byte as before; on, it gets the same stable list a
+writable stage gets, `git`/`web` still require asking for them, and
+`buildGate` still refuses `Edit`/`Write` on a read-only stage with those tools
+listed; and the read-only system prompt is now provably an exact-prefix
+extension of the writable one rather than a divergence assumed to help.
+
+### 35. `fix` verified a patch without ever selecting between candidates, and evidence's only durable artifact was a shell command · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+`fix` runs the whole suite to verify a patch, but never *selects* between
+candidate patches — one `fix`-stage attempt per rung, accepted or rejected
+wholesale. And the evidence stage's only durable output was a shell repro
+*command*: useful for a human to eyeball, but nothing a later stage could
+check a candidate against more precisely than "did the whole suite pass".
+Published results on this technique — generate a reproduction test, then
+sample multiple candidate fixes and keep the one that turns it green — report
+it as the single largest lever measured for this kind of pipeline, ahead of
+majority voting or regression-test filtering alone. It also closes the
+approximation entry #32 shipped: `fix`'s pre-existing-failure baseline told
+"the bug's own test" from "unrelated pre-existing failure" apart only by
+locking-and-refusing-forgiveness — a proxy. An explicit, harness-confirmed
+repro test is the signal that was actually missing.
+
+**Fix, in two parts.** `Evidence` gained `reproTest: {file, content} | null`,
+alongside `repro`, describing a new-or-existing test expected to fail right
+now — optional, explicitly: a UI or manual-only bug has nothing test-shaped to
+propose. When one is proposed, `fix.ts` screens it with the identical checks
+`buildGate` applies to every tool-based write — `isCredentialPath`, `isInside`,
+and a new `findSecret` (gate-tools.ts's own secret-pattern scan, exported
+rather than re-implemented so `buildGate` and this call site can never drift
+apart) — because this write reaches disk straight from a schema field, with no
+Edit/Write tool call for the gate to ever see. Screened content is then
+offered through the same consent gate `maybeRunRepro` already uses for a
+repro *command*, written, and run once; only if it genuinely fails does it
+become `reproTestFile` and get folded into `lockedPaths`, the same set
+`preExisting`/repro-derived failures already lock. Every way this can come up
+empty — refused, declined, passes immediately, no test command to confirm it
+with — degrades to "no repro test", never to an error; a repro that doesn't
+reproduce is worse than none, the same principle `feature.ts`'s
+`proveFailing` already applies to a newly-written test. A file that fails to
+reproduce is left on disk rather than deleted: it is real, operator-approved
+content that just isn't evidence of *this* bug.
+
+Once a repro test is confirmed, `fixUntilVerified` tries up to two independent
+`fix`-stage candidates per rung instead of one, behind
+`features.candidateSampling`. Candidate 2 sees the exact rootCause/notes
+candidate 1 saw — not "candidate 1 failed, here's why", which is what the
+ladder's own retry already supplies one rung later. Both candidates are
+scored by the *same* `verify()` used everywhere else in `fix` — no second,
+divergent notion of "did it work" — which already encodes the right rule
+(the repro test no longer fails, and nothing new broke) once the repro test
+is locked. Between candidates the tree is reverted with the exact
+`runner.revertChanges` mechanism entry #33 added, unconditionally, regardless
+of `cleanRetries`: that flag is an optimisation between ladder retries, and
+without this revert "two candidates" would just mean candidate 1 with more
+edits on top. The one property that would have been easy to get quietly
+wrong: a rung's two candidates, both failing, must cost the ladder in
+`escalate.ts` exactly one retry, not two — `afterFailure` is called once per
+outer-loop iteration regardless of how many candidates ran inside it, proven
+by watching which rung the next real attempt lands on rather than trusting a
+count.
+
+**Judgment calls, made explicit:**
+- The confirmed repro test is excluded from every revert by adding it to
+  `lockedPaths` and filtering the shared revert helper on that set, rather
+  than moving `alreadyChanged`'s computation later — `alreadyChanged` is
+  captured before the repro test is written and stays that way; the file the
+  fix stage can never touch (locked) also never needs reverting, the same
+  reason existing locked files never appeared in a revert set before this.
+- The evidence artifact's screen rendering (`ui.ts`) shows only the repro
+  test's file name, not its content — `wrap()` breaks at spaces and would
+  mangle a test's own indentation, unlike a one-line shell command. The full
+  content is shown once, intact, at the write-consent gate instead, which
+  uses `gate.ts`'s plain `indent()`. The *prompt* rendering
+  (`renderEvidence`) does carry the full content — the next stage genuinely
+  needs it, and that renderer never word-wraps.
+- `Ledger.candidates` is a running counter unscoped by a `mark()` cursor,
+  mirroring `escalations`'s existing (also unscoped) shape exactly, rather
+  than fixing that inconsistency here.
+- `Features.candidateSampling` and `Ledger.Summary.candidates` are both
+  fully-required fields, matching every sibling field in their interfaces —
+  which meant two mechanical, non-design touches to `src/bench.ts` (its
+  explicit `full` config, and `Summary`-typed object literals in `total()`
+  and `aggregateMetrics`) to keep it compiling, plus a `?` on
+  `MetricsLine.candidates` since historical `.sumo/metrics.jsonl` rows
+  genuinely don't have it.
+
+`src/schemas.ts`, `src/prompts.ts`, `src/ui.ts`, `src/gate-tools.ts`,
+`src/workflows/fix.ts`, `src/features.ts`, `src/ledger.ts` (`src/bench.ts`
+touched only mechanically, to keep two now-exhaustive interfaces compiling) ·
+16 new tests, plus test/fix-gates.test.ts and test/clean-retries.test.ts
+passing unmodified — this is purely additive when no repro test is proposed
+or the flag is off, which is every case before this brief.
+
+**Still open:** everything above is proven offline, against a stub engine and
+a real fixture repo — the same discipline entry #31's bench harness already
+established. What is *not* yet measured is the number this whole brief exists
+to justify: whether $/verified actually improves with `candidateSampling` on.
+That requires a live `SUMO_E2E=1` `sumo bench` comparison, which costs real
+money and was explicitly deferred here, the same way entry #22 deferred its
+own live measurement.
+
+### 36. Every failed rung-attempt escalated the same way, whether the failure was a detail or a sign the model can't do this · MECHANISM IN PLACE, LIVE NUMBER STILL OPEN
+
+`escalate.ts`'s `afterFailure` retried once at the same rung, then climbed,
+regardless of *why* the attempt failed — a typo in the fix and a fundamentally
+wrong approach were escalated on the identical schedule. Published
+cascaded-judge results report that a cheap, calibrated judge can gate
+escalation with high agreement even where the strong model alone could not
+tell the two apart, which is a case for asking before paying for a retry the
+judge already doubts will help.
+
+**What's in now.** A tiny new schema, `EscalationVerdict` (`schemas.ts`) —
+one enum field, `nearMiss | capabilityFailure`, deliberately with no free-text
+reasoning field, because the whole point is that asking has to cost close to
+nothing. `fix.ts`'s new `judgeEscalation` runs it as one extra stage
+(`ESCALATION_JUDGE_STAGE`, `prompts.ts`) right before the existing
+`afterFailure(ladder)` call, behind `features.escalationJudge`: no tools
+(`capabilities: []`), the cheapest tier, `maxTurns: 3`, `maxBudgetUsd: 0.02` —
+modelled directly on `repl.ts`'s own route classifier, the one other place
+this harness already asks a cheap, disposable question of a model. Every way
+it can go wrong — the stage throws, hits its turn or budget cap, or answers
+something `EscalationVerdict` doesn't parse — is caught and treated as
+`nearMiss`, today's exact behaviour, in `judgeEscalation` itself; nothing
+above or below the one call site in `fixUntilVerified` changed.
+
+`afterFailure` gained a second, optional parameter,
+`verdict?: 'nearMiss' | 'capabilityFailure'`. Omitted, or `'nearMiss'`, it is
+byte-for-byte the function that shipped before this brief — every existing
+test in `escalate.test.ts` and `escalate-loop.test.ts` passes unmodified. On a
+confident `capabilityFailure`, two things change: the same-rung retry is
+skipped outright (escalating immediately, as if the retry had already been
+spent), and if the ladder's very next rung would only be a same-tier effort
+bump — `mid/low → mid/high` or `large/medium → large/high`, the two places
+`LADDER` repeats a tier before moving on — the climb skips past it to the rung
+beyond, landing on a genuine tier change instead of a step the judge already
+doubts will help. Either way this still counts as exactly one escalation
+against `MAX_ESCALATIONS`, never two, and a skip that would land past the top
+of the ladder gives up exactly as an ordinary climb off the top already does.
+
+**A discrepancy caught while implementing, not just found later.** The
+original brief for this entry described the same-tier skip as applying "at
+rungs 0 or 1." Mechanically applying "skip when the ladder's next rung has the
+same tier as the current one" to this project's actual `LADDER` shows that is
+only true of rung 1 (`mid/low`, whose next rung `mid/high` is the same tier)
+and, by the identical rule, rung 3 (`large/medium → large/high`). Rung 0's own
+escalation (`small → mid`) is already a tier change — skipping from there
+would land on `mid/high`, still `mid`, which is not a tier change at all and
+directly contradicts the stated goal. The implementation follows the
+mechanical rule everywhere (it is what every other sentence in the brief,
+including the rung-2 counter-example, is consistent with), and the tests below
+exercise rungs 0, 1, 2 and 3 individually rather than trusting the "0 or 1"
+phrasing.
+
+`src/schemas.ts`, `src/prompts.ts`, `src/escalate.ts`, `src/workflows/fix.ts`,
+`src/features.ts`, `src/bench.ts` (mechanical, to keep `Features` compiling) ·
+`test/escalate.test.ts` (7 new cases: every existing case unchanged under an
+explicit `nearMiss`, the retry-skip in isolation, the rung-1 same-tier skip —
+both fresh and after its own retry has already been spent — the rung-2
+non-skip, the escalation cap, and the rung-3 skip landing past the top of the
+ladder), `test/escalation-judge.test.ts`
+(5 new tests, offline against a stub engine and a real fixture repo, mirroring
+`test/candidate-sampling.test.ts`'s style: a scripted `capabilityFailure`
+verdict moves the very next `fix`-stage call to the escalated rung, watched by
+rung rather than by call count; the flag off never calls the judge stage at
+all; a judge that throws or answers unparseable text proceeds exactly as a
+`nearMiss` would) — plus every test in `escalate.test.ts`, `escalate-loop.test.ts`,
+`candidate-sampling.test.ts` and `fix-gates.test.ts` passing unmodified.
+
+**Still open:** same shape as #34 and #35 — everything above is proven
+offline. Whether a judge-informed ladder actually improves $/verified, versus
+its own extra (small) per-failure cost, is not measurable without a live
+`SUMO_E2E=1` `sumo bench` comparison, which costs real money and was
+deliberately not spent here.
 
 ### 21. Old progress files keep their stale `finished: true`
 
@@ -531,12 +976,6 @@ task.
 `/again nonsense` says "Nothing to re-run yet" rather than naming the invalid
 mode, because the empty-history check runs first. Cosmetic, but the suggestion
 it prints is then unhelpful.
-
-### 22. Explore is expensive on a repo with large files
-
-On `sumo-news`: explore `$0.1392` / 31s, plan `$0.0951` / 18s, for what became a
-one-file documentation edit. Both stages read `settings/page.tsx` in full. Worth
-measuring whether the index is displacing reads or just adding to them.
 
 ---
 

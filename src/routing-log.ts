@@ -13,7 +13,10 @@
  * corrected is ground truth. A later classifier trained on this file has to
  * weigh those differently, and cannot if they all look alike.
  *
- * This is a log, not a learner. Nothing here changes how a turn is routed.
+ * This used to be a log and nothing more. `src/route/local.ts` now reads
+ * `corrections()` back at startup to build a per-repo overlay on its shipped
+ * centroids — this file stays a plain record of what happened; the weighing of
+ * what it means lives entirely in the router.
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -135,6 +138,24 @@ export function read(root: string): RoutingRecord[] {
   } catch {
     return [];
   }
+}
+
+export interface RoutingCorrection {
+  readonly text: string;
+  /** The mode it was corrected *to*. */
+  readonly mode: Mode;
+}
+
+/**
+ * Every turn on record where the operator's answer replaced an earlier one —
+ * the raw material for the local router's per-repo overlay. Built on `read()`
+ * rather than a second pass over the file, so a corrupt or absent log degrades
+ * exactly the same way for both.
+ */
+export function corrections(root: string): RoutingCorrection[] {
+  return read(root)
+    .filter((row) => row.was !== undefined)
+    .map((row) => ({ text: row.text, mode: row.mode }));
 }
 
 export interface RoutingSummary {

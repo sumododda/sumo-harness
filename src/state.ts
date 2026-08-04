@@ -78,33 +78,35 @@ export class TaskState {
 
   /** The most recent task in this repo, or null when there is none. */
   /**
-   * A previous run's survey of the repository, when one still applies.
+   * A previous run's artifact for this task, when one still applies.
    *
    * The stage cache already covers the common case — an identical retry replays
    * for nothing — but it is keyed on the exact prompt and can be cleared or
-   * evicted, and then a task that failed late pays to survey the repository all
-   * over again. That is the case this covers: the same task, against the same
+   * evicted, and then a task that failed late pays to redo the work all over
+   * again. That is the case this covers: the same task, against the same
    * repository, has the same answer whether or not anything remembered it.
+   * `explore.md` (plan, feature) and `evidence.md` (fix) are both this kind of
+   * artifact, hence `filename` rather than a name baked in.
    *
-   * The fingerprint is what makes it safe. Findings describe files, so reusing
-   * them across a change to those files would be worse than re-reading — it
-   * would be confidently wrong. Matching fingerprints mean the repository is
-   * byte-for-byte what it was when the survey was written.
+   * The fingerprint is what makes it safe. These artifacts describe files, so
+   * reusing them across a change to those files would be worse than redoing the
+   * work — it would be confidently wrong. Matching fingerprints mean the
+   * repository is byte-for-byte what it was when the artifact was written.
    */
-  static findFindings(repo: RepoInfo, task: string, fingerprint: string): string | null {
+  static findArtifact(repo: RepoInfo, task: string, fingerprint: string, filename: string): string | null {
     try {
       const tasks = join(repo.root, '.sumo', 'tasks');
-      // Newest first: the most recent survey of an unchanged repo is as good as
-      // any older one, and stops the scan sooner.
+      // Newest first: the most recent artifact for an unchanged repo is as good
+      // as any older one, and stops the scan sooner.
       for (const id of readdirSync(tasks).sort().reverse()) {
         const prior = new TaskState(repo, id);
         if (prior.read('fingerprint.txt')?.trim() !== fingerprint) continue;
         if (prior.loadProgress()?.task !== task) continue;
-        const findings = prior.read('explore.md');
-        if (findings && findings.trim().length > 0) return findings;
+        const artifact = prior.read(filename);
+        if (artifact && artifact.trim().length > 0) return artifact;
       }
     } catch {
-      // No task directory yet, or an unreadable one. Surveying again is always
+      // No task directory yet, or an unreadable one. Redoing the work is always
       // correct; it is only slower.
     }
     return null;

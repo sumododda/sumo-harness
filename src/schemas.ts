@@ -29,6 +29,14 @@ export const Evidence = z.object({
     .string()
     .nullable()
     .describe('one shell command that demonstrates the problem, or null'),
+  reproTest: z
+    .object({ file: z.string(), content: z.string() })
+    .nullable()
+    .describe(
+      'a new-or-existing test file whose content demonstrates the bug and is ' +
+        'expected to fail right now, or null when nothing test-shaped fits ' +
+        '(e.g. a UI or manual-only bug). The harness writes and runs it, never you.',
+    ),
   hypotheses: z.array(z.string()).describe('at most three, each tied to an observation'),
 });
 export type Evidence = z.infer<typeof Evidence>;
@@ -41,6 +49,21 @@ export const RootCause = z.object({
   verification: z.string().describe('how we will know it worked'),
 });
 export type RootCause = z.infer<typeof RootCause>;
+
+/**
+ * A cheap second opinion on a failed rung-attempt: worth another try at the
+ * same approach, or a sign the approach or model can't do this. No free-text
+ * reasoning field — the whole point of asking is that it costs almost nothing.
+ */
+export const EscalationVerdict = z.object({
+  verdict: z
+    .enum(['nearMiss', 'capabilityFailure'])
+    .describe(
+      'nearMiss: the same approach could likely fix this with another try. ' +
+        'capabilityFailure: the current approach or model looks insufficient.',
+    ),
+});
+export type EscalationVerdict = z.infer<typeof EscalationVerdict>;
 
 /** What already exists that a new feature should build on. */
 export const Explore = z.object({
@@ -119,6 +142,7 @@ export function renderEvidence(e: Evidence): string {
     ['Observations', e.observations.length > 0 ? encode({ observations: e.observations }) : 'none'],
     ['Suspects', list(e.suspects)],
     ['Repro', e.repro ?? 'none'],
+    ['Repro test', e.reproTest ? `${e.reproTest.file}\n${e.reproTest.content}` : 'none'],
     ['Hypotheses', list(e.hypotheses)],
   ]);
 }

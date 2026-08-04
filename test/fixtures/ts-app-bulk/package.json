@@ -1,0 +1,8 @@
+{
+  "name": "ts-app-bulk-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

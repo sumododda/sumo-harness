@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { path, read, record, reset, summarize } from '../src/routing-log.ts';
+import { corrections, path, read, record, reset, summarize } from '../src/routing-log.ts';
 
 /** A throwaway repo root, so a test never writes into a real one. */
 function scratch(): string {
@@ -125,6 +125,32 @@ test('the summary names the routes that get corrected', () => {
     assert.equal(summary.by.classifier, 1);
     // The line that earns the file: the harness reporting its own worst route.
     assert.deepEqual(summary.corrections, [{ change: 'chat→do', count: 2 }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('corrections lists only the turns that replaced an earlier route', () => {
+  const root = scratch();
+  try {
+    record(root, { text: 'change the license', mode: 'chat', why: 'question', by: 'rules' });
+    record(root, { text: 'change the license', mode: 'do', why: 'pinned', by: 'you' });
+    // Not a correction — nothing came before it to replace.
+    record(root, { text: 'add a checkout endpoint', mode: 'feature', why: 'new', by: 'rules' });
+
+    assert.deepEqual(corrections(root), [{ text: 'change the license', mode: 'do' }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('corrections is empty for a repo with no log or no corrections in it', () => {
+  const root = scratch();
+  try {
+    assert.deepEqual(corrections(root), []);
+
+    record(root, { text: 'what does X do', mode: 'chat', why: 'question', by: 'rules' });
+    assert.deepEqual(corrections(root), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

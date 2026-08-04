@@ -53,6 +53,12 @@ function stubEngine(seen: { stage: string; tier: Tier; effort?: string }[]): Eng
 /**
  * Builds a test command that fails a given number of times, then passes.
  * State lives in a counter file so each invocation is a fresh process.
+ *
+ * The very first call is reserved for the pre-existing-failure baseline `fix`
+ * now runs before anything else, and always passes it — these tests are about
+ * the ladder, not about that baseline, so it must stay out of the way. Every
+ * call after that behaves exactly as `failures` describes, same as before the
+ * baseline existed.
  */
 function scriptedTests(dir: string, failures: number): string {
   const script = join(dir, 'fake-tests.sh');
@@ -64,8 +70,13 @@ function scriptedTests(dir: string, failures: number): string {
 n=$(cat ${counter})
 n=$((n + 1))
 echo $n > ${counter}
-if [ "$n" -le ${failures} ]; then
-  echo "✖ still broken (attempt $n)"
+if [ "$n" -eq 1 ]; then
+  echo "ok"
+  exit 0
+fi
+m=$((n - 1))
+if [ "$m" -le ${failures} ]; then
+  echo "✖ still broken (attempt $m)"
   exit 1
 fi
 echo "ok"

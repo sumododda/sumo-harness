@@ -19,6 +19,16 @@ export interface Features {
   readonly deltaRetries: boolean;
   /** Prefer a targeted edit over rewriting a whole file. */
   readonly targetedEdits: boolean;
+  /** Give survey stages symbol skeletons of their candidate files, ahead of full bodies. */
+  readonly skeletonContext: boolean;
+  /** Revert a retry's own changes before the next attempt, so it starts from a clean tree. */
+  readonly cleanRetries: boolean;
+  /** Grant every stage the same tool list, so a provider's prefix cache survives stage to stage. */
+  readonly stableToolList: boolean;
+  /** When `fix` has a confirmed repro test, sample a second independent candidate before retrying. */
+  readonly candidateSampling: boolean;
+  /** Ask a cheap judge whether a failed rung-attempt is a near miss or a capability failure, before escalating. */
+  readonly escalationJudge: boolean;
 }
 
 const ALL_ON: Features = {
@@ -27,6 +37,11 @@ const ALL_ON: Features = {
   gatedRetrieval: true,
   deltaRetries: true,
   targetedEdits: true,
+  skeletonContext: true,
+  cleanRetries: true,
+  stableToolList: true,
+  candidateSampling: true,
+  escalationJudge: true,
 };
 
 export const ALL_OFF: Features = {
@@ -35,6 +50,11 @@ export const ALL_OFF: Features = {
   gatedRetrieval: false,
   deltaRetries: false,
   targetedEdits: false,
+  skeletonContext: false,
+  cleanRetries: false,
+  stableToolList: false,
+  candidateSampling: false,
+  escalationJudge: false,
 };
 
 let current: Features = ALL_ON;

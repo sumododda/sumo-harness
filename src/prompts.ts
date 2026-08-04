@@ -6,6 +6,7 @@
  * essentially all the standing instruction a stage gets.
  */
 
+import * as features from './features.ts';
 import { loadProfile } from './profile.ts';
 
 const ROLE = `You are a coding agent in the sumo harness. Work only on the stated task.
@@ -38,21 +39,30 @@ wastes the turn. If the task needs a change, say precisely what should change
 and in which file; the harness routes that to a stage that can make it.`;
 
 /**
- * Builds the system prompt for a stage: role, working directory, permissions,
- * profile.
+ * Builds the system prompt for a stage: role, working directory, profile, and
+ * — last, only for a stage that cannot write — the read-only notice.
  *
  * The directory line earns its keep. Replacing the provider's default prompt
  * also drops its environment section, and without it the model guesses absolute
  * paths from filesystem root — burning two failed reads before finding a file.
+ *
+ * The read-only notice sits after the profile rather than right after the
+ * directory line so a read-only and a writable stage's prompts share the
+ * longest possible identical run of text. A provider that caches its own
+ * request by longest-common-prefix gets nothing from a match at the *end* of
+ * the string; with the one line that differs moved last, a writable stage's
+ * entire prompt is now an exact prefix of a read-only stage's — role,
+ * directory and profile can all be served from that cache regardless of which
+ * kind of stage asks next, where before the prefix broke immediately after
+ * "Working directory" and the profile behind it was foreign to it either way.
  */
 export function systemPrompt(cwd: string, canWrite = false): string {
   return `${ROLE}
 
 Working directory: ${cwd}
 Paths you use must be relative to it, or absolute beneath it.
-${canWrite ? '' : READ_ONLY}
 
-${loadProfile()}`;
+${loadProfile()}${canWrite ? '' : `\n${READ_ONLY}`}`;
 }
 
 export const DO_STAGE = (task: string, context = '') =>
@@ -94,15 +104,35 @@ so and give both rather than picking one silently. If searching does not settle
 it, say what you could not confirm instead of filling the gap from memory.
 Be brief: what was asked, not everything found.`;
 
+/**
+ * Told to a survey stage once the skeleton flag is on. Bug #22: `explore` and
+ * `plan` both `Read` a large file in full on top of a pack that had already
+ * selected it — the index was meant to replace that read, not sit beside it.
+ * Naming the one thing that gets a body (the symbol) costs a sentence and
+ * turns "read the whole file to check" into "the signature already said
+ * enough" for the common case. Returns '' when the flag is off, so this reads
+ * as it did before the flag existed.
+ */
+function skeletonHint(): string {
+  if (!features.get().skeletonContext) return '';
+  return " A skeleton above lists this task's files by signature, no bodies — a\nbody is available by naming its symbol, not by reading the whole file.";
+}
+
 export const EVIDENCE_STAGE = (bug: string, context = '') =>
   `${context}Reported problem: ${bug}
 
 Gather evidence. Do not fix anything and do not edit any file.
 Any code shown above was selected by the repository's index — start from it and
-open further files only when it is not enough. Report what you actually
-observed along the failing path.
+open further files only when it is not enough.${skeletonHint()} Report what you
+actually observed along the failing path.
 If a single command would demonstrate the problem, propose it — the harness
-will run it, not you. At most three hypotheses, each tied to an observation.`;
+will run it, not you.
+If a new-or-existing test file would demonstrate the bug, propose its file
+path and full content — the harness writes and runs it, never you. It must be
+expected to fail right now, against the code as it stands. This is optional:
+leave it null when nothing test-shaped fits, e.g. a UI or manual-only bug —
+forcing one where none applies is worse than proposing none.
+At most three hypotheses, each tied to an observation.`;
 
 export const ROOT_CAUSE_STAGE = (bug: string, evidence: string, repro: string) =>
   `Reported problem: ${bug}
@@ -158,7 +188,7 @@ export const EXPLORE_STAGE = (task: string, files: readonly string[] = [], conte
   `${context}${fileListing(files)}Task: ${task}
 
 Investigate before proposing anything. Do not edit any file.
-Any code shown above was selected by the repository's index — start from it.
+Any code shown above was selected by the repository's index — start from it.${skeletonHint()}
 Trust the file listing above over a Glob: Glob answers from dependency
 directories first and truncates, so a file missing from it is not evidence that
 the file does not exist.
@@ -235,6 +265,26 @@ locked — you cannot edit them, and weakening a test is not an option. Reuse th
 existing helpers named in the plan. Do not add error handling for situations
 that cannot occur.
 When done, reply with one line per file changed: <path> — <what changed>.`;
+
+/**
+ * A cheap advisory read on a failed fix attempt, run right before the ladder
+ * decides what to do next.
+ *
+ * No repository access and no context block: the question is entirely
+ * answerable from the root cause and the failing output already in hand, and
+ * giving it more would only make an intentionally near-free call slower.
+ */
+export const ESCALATION_JUDGE_STAGE = (rootCause: string, failingOutput: string) =>
+  `Root cause and fix that was attempted:
+${rootCause}
+
+Verification failed. What the test run showed:
+${failingOutput}
+
+Judge this failure. Is it a near miss the same approach could likely fix with
+another try at the same rung, or does it look like the current approach or
+model capability is insufficient and a stronger model is needed? Answer with
+the verdict only — no explanation.`;
 
 export const DISCUSS_STAGE = (proposal: string, question: string) =>
   `A proposal is on the table:
