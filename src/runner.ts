@@ -421,6 +421,16 @@ export type BranchResult =
   | { readonly kind: 'created'; readonly branch: string; readonly from: string }
   /** Work already had a branch; this attempt joins it rather than forking again. */
   | { readonly kind: 'reused'; readonly branch: string }
+  /**
+   * Standing on a harness branch belonging to different work.
+   *
+   * Its own outcome because it is the one case the harness must not guess at.
+   * Continuing lands new commits beside unrelated ones on a branch named for
+   * neither, and forking from here inherits the other task's history — both are
+   * discovered later, when they are expensive to unpick. Refusing costs one
+   * command.
+   */
+  | { readonly kind: 'conflict'; readonly on: string; readonly wanted: string }
   | { readonly kind: 'skipped'; readonly why: string };
 
 /**
@@ -444,9 +454,18 @@ export async function createBranch(cwd: string, branch: string): Promise<BranchR
   const from = await currentBranch(cwd);
   if (from === null) return { kind: 'skipped', why: 'not a git repository' };
 
-  // Iterating on work that already has a branch. Staying put is the whole point
-  // — the previous attempt is here, and the next one belongs beside it.
-  if (isSumoBranch(from)) return { kind: 'reused', branch: from };
+  // Iterating on this task. Staying put is the whole point — the previous
+  // attempt is here, and the next one belongs beside it.
+  if (from === branch) return { kind: 'reused', branch: from };
+
+  // A harness branch for *other* work. This used to be treated as iteration
+  // too, on the reasoning that only the operator can tell the difference — so
+  // it joined the branch and printed how to avoid that. In practice the notice
+  // scrolls past and the commits land anyway: a documentation task continued on
+  // `sumo/add-how-configure-rss-sources`, a branch from hours earlier and a
+  // different feature entirely. The name is derived from the task, so the two
+  // cases *are* distinguishable, and this is the one worth stopping for.
+  if (isSumoBranch(from)) return { kind: 'conflict', on: from, wanted: branch };
 
   if (!(await isClean(cwd))) {
     return {

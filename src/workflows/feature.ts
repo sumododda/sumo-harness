@@ -86,6 +86,9 @@ export async function runFeature(
 
   // 0. Branch first, so everything that follows is reviewable and revertable.
   const branch = await startBranch(task, ctx);
+  if (branch !== null && typeof branch === 'object') {
+    return { kind: 'stopped', why: branch.stop, branch: null };
+  }
 
   // Record what was already broken. Without this, "make the failing tests pass"
   // sweeps in unrelated pre-existing failures and the feature quietly grows.
@@ -342,7 +345,10 @@ async function preExistingFailures(ctx: FeatureContext): Promise<string | null> 
 }
 
 /** Puts the task on its own branch, reporting clearly when it cannot. */
-async function startBranch(task: string, ctx: FeatureContext): Promise<string | null> {
+async function startBranch(
+  task: string,
+  ctx: FeatureContext,
+): Promise<string | null | { readonly stop: string }> {
   const wanted = runner.branchNameFor(task);
   const result = await runner.createBranch(ctx.cwd, wanted);
 
@@ -355,17 +361,19 @@ async function startBranch(task: string, ctx: FeatureContext): Promise<string | 
   // joining an existing branch is the right default, but only if you can see
   // that it happened.
   if (result.kind === 'reused') {
-    // A branch named for this task is iteration, and needs no explanation. A
-    // branch named for a different one means new work landing beside old — the
-    // right default while iterating, the wrong one when starting something
-    // else, and only the operator can tell which. So the way out is named
-    // rather than left to be discovered.
-    const note =
-      result.branch === wanted
-        ? ''
-        : pc.dim(` — /git checkout main first to start ${pc.cyan(wanted)}`);
-    process.stdout.write(`${pc.dim(`  continuing on ${pc.cyan(result.branch)}`)}${note}\n`);
+    process.stdout.write(pc.dim(`  continuing on ${pc.cyan(result.branch)}\n`));
     return result.branch;
+  }
+
+  // Refused rather than reported. Landing this task's commits on a branch named
+  // for another is not a thing anyone notices in a stream of output, and it is
+  // tedious to undo once tests and a plan have been built on top of it.
+  if (result.kind === 'conflict') {
+    return {
+      stop:
+        `already on ${result.on}, which belongs to different work — ` +
+        `run /git checkout main to start ${wanted}, or re-run this from that branch if it is the same task`,
+    };
   }
 
   process.stdout.write(pc.yellow(`  working on the current branch — ${result.why}\n`));

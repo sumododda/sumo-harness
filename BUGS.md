@@ -449,6 +449,37 @@ those files while a fix is in progress.
 
 ---
 
+### 28. New work continued on a branch named for an unrelated old task · FIXED
+
+From a real session:
+
+    continuing on sumo/add-how-configure-rss-sources-260804T1554
+      — /git checkout main first to start sumo/i-would-like-make-ios
+
+A documentation task landed on a branch cut hours earlier for an RSS feature.
+
+The reuse rule was `isSumoBranch(from)`, which asks whether the current branch
+belongs to *the harness* rather than to *this task*. Bug #3 taught it not to
+fork a branch off another harness branch, and it learned the lesson too broadly:
+anything started while standing on one joined it instead.
+
+The code knew, and said so — that notice is the code recognising the exact
+situation and choosing to continue anyway, on the reasoning that only the
+operator can tell iteration from new work. In practice the notice scrolls past
+in a stream of tool output and the commits land regardless, which is discovered
+later, when a plan and a test suite have been built on top.
+
+But the two cases *are* distinguishable: the branch name is derived from the
+task, so a name that matches is iteration and a name that does not is new work.
+
+**Fix:** reuse requires the name to match. A harness branch belonging to
+different work is its own outcome, `conflict`, and it stops the workflow before
+anything is written rather than reporting itself and carrying on. Nothing moves
+the operator's branch — the way out is one command, and it is named.
+`src/runner.ts`, `src/workflows/feature.ts` · 2 tests.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

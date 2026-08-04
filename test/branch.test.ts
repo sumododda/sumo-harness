@@ -109,19 +109,26 @@ test('running the same task again joins its branch instead of refusing', async (
   }
 });
 
-test('a branch is never forked off another harness branch', async () => {
+test('different work on a harness branch is refused, not quietly joined', async () => {
   const dir = await repo();
   try {
     await createBranch(dir, 'sumo/first-task');
 
-    // Asking for a different branch while standing on one of ours: creating it
+    // Asking for a different branch while standing on one of ours. Creating it
     // here would stack a branch on a branch, carrying the first task's commits
-    // into the second. Three such branches once pointed at one commit with no
+    // into the second — three such branches once pointed at one commit with no
     // distinct work between them.
+    //
+    // Joining the first is no better, and was the behaviour until a real
+    // session did it: a documentation task continued on a branch named for an
+    // RSS feature from hours earlier, having printed a notice that scrolled
+    // past. The branch name is derived from the task, so the two cases are
+    // distinguishable, and this one is worth stopping for.
     const second = await createBranch(dir, 'sumo/second-task');
 
-    assert.equal(second.kind, 'reused');
-    assert.equal(second.kind === 'reused' ? second.branch : '', 'sumo/first-task');
+    assert.equal(second.kind, 'conflict');
+    assert.equal(second.kind === 'conflict' ? second.on : '', 'sumo/first-task');
+    assert.equal(second.kind === 'conflict' ? second.wanted : '', 'sumo/second-task');
     assert.equal(await currentBranch(dir), 'sumo/first-task', 'must stay put');
 
     // `rev-parse --verify` exits non-zero for a ref that is not there.
@@ -143,6 +150,23 @@ test('a dirty tree on a harness branch still joins it', async () => {
     const again = await createBranch(dir, 'sumo/in-progress');
     assert.equal(again.kind, 'reused');
     assert.equal(await currentBranch(dir), 'sumo/in-progress');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the same task on its own branch is still plain iteration', async () => {
+  const dir = await repo();
+  try {
+    await createBranch(dir, 'sumo/add-a-tags-command');
+    // Identical name means the previous attempt at this task, which is exactly
+    // what the branch is for. This must stay silent and free of ceremony, or
+    // refusing the unrelated case above would make iterating painful.
+    const again = await createBranch(dir, 'sumo/add-a-tags-command');
+
+    assert.equal(again.kind, 'reused');
+    assert.equal(again.kind === 'reused' ? again.branch : '', 'sumo/add-a-tags-command');
+    assert.equal(await currentBranch(dir), 'sumo/add-a-tags-command');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
