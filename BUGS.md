@@ -602,6 +602,58 @@ unchanged.
 
 ---
 
+### 32. A red test in `fix` could be turned green by editing it, not the bug · FIXED
+
+`fix.ts`'s own module comment claims the ordering is "enforced here in code,
+not requested in a prompt." True of the approval gate, false of the test lock:
+the only thing stopping "make the failing test pass" from being satisfied by
+weakening the test itself was a sentence in `FIX_STAGE` — "do not modify
+tests" — read by the same model being asked to make the test pass. `feature.ts`
+closed exactly this hole with `lockedPaths` the day that field was added to
+`StageSpec`; `fix.ts` never got the port, so the property the docs claimed for
+the whole workflow did not hold for the one gate that mattered most.
+
+Two more gaps sat beside it, both already solved in `feature.ts` and never
+carried over. No pre-existing-failure baseline: `verify()` checks
+`outcome.passed`, all or nothing, so a repo with even one unrelated red test
+made a correct fix unverifiable forever — the ladder retried, escalated twice,
+and gave up on a failure the task did not cause. And no findings reuse: `plan`
+and `feature` skip re-surveying an unchanged repository for a retried task by
+matching `explore.md` against a fingerprint; `fix` writes `evidence.md` and
+never attempted the same trick, so a fix retried after a late failure re-paid
+for evidence gathering it already had.
+
+**Fix:** `fixUntilVerified` now locks whichever test files are currently
+failing — from `failures.testFiles` over the pre-existing and repro output —
+on every attempt, including the first. `runFix` runs the suite once before
+anything is written, same as `feature`'s `preExistingFailures`.
+`TaskState.findFindings` became `findArtifact(repo, task, fingerprint,
+filename)`, parameterised on the filename instead of hardcoding `explore.md`,
+so `fix` reuses `evidence.md` through the identical mechanism `plan` and
+`feature` already used.
+
+The first version of the pre-existing-failure check reused `feature.ts`'s
+exact shape — "only pre-existing failures remain" is verified — and shipped
+a second bug on top of the one it fixed. `feature` gets away with that check
+because the tests it locks are written *after* the baseline is taken, so a
+locked file can never appear in it. `fix` locks whatever was *already*
+failing, which means the bug's own regression test, if it has one, lands in
+the baseline exactly like any unrelated failure — and a fix attempt that
+changed nothing would see its own target test as "pre-existing" and verify
+itself. Caught before merge, not in a session: a fix that left a locked file's
+failure completely unchanged is never forgiven as pre-existing, whatever else
+in the baseline is; only a still-failing file outside `lockedPaths` — the
+kind `runner.failureLines` can see but no runner-specific parser resolves to
+a file at all — gets the benefit of the doubt. Narrower than first shipped,
+correctly so: distinguishing the bug's own test from a genuinely unrelated
+one needs evidence tying a failure to the report, which nothing here has yet.
+`src/workflows/fix.ts`, `src/state.ts` (`plan.ts` and `feature.ts` updated
+only at the call site) · 5 tests against the gate and ladder the workflow
+actually builds, including one asserting an unchanged locked failure is
+never waved through.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

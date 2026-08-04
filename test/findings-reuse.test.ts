@@ -47,7 +47,7 @@ function withRepo(fn: (repo: RepoInfo) => void): void {
 test('the same task against the same repository reuses the survey', () => {
   withRepo((repo) => {
     saveSurvey(repo, '20260801T000000-plan', TASK, 'abc123');
-    assert.equal(TaskState.findFindings(repo, TASK, 'abc123'), FINDINGS);
+    assert.equal(TaskState.findArtifact(repo, TASK, 'abc123', 'explore.md'), FINDINGS);
   });
 });
 
@@ -56,14 +56,14 @@ test('a changed repository is surveyed again, not reused', () => {
   // those files moved, saying so from memory is worse than not saying it.
   withRepo((repo) => {
     saveSurvey(repo, '20260801T000000-plan', TASK, 'abc123');
-    assert.equal(TaskState.findFindings(repo, TASK, 'DIFFERENT'), null);
+    assert.equal(TaskState.findArtifact(repo, TASK, 'DIFFERENT', 'explore.md'), null);
   });
 });
 
 test('a different task is surveyed again, even on the same repository', () => {
   withRepo((repo) => {
     saveSurvey(repo, '20260801T000000-plan', TASK, 'abc123');
-    assert.equal(TaskState.findFindings(repo, 'something else entirely', 'abc123'), null);
+    assert.equal(TaskState.findArtifact(repo, 'something else entirely', 'abc123', 'explore.md'), null);
   });
 });
 
@@ -71,7 +71,7 @@ test('the newest matching survey wins', () => {
   withRepo((repo) => {
     saveSurvey(repo, '20260801T000000-plan', TASK, 'abc123', 'OLDER');
     saveSurvey(repo, '20260809T000000-plan', TASK, 'abc123', 'NEWER');
-    assert.equal(TaskState.findFindings(repo, TASK, 'abc123'), 'NEWER');
+    assert.equal(TaskState.findArtifact(repo, TASK, 'abc123', 'explore.md'), 'NEWER');
   });
 });
 
@@ -85,12 +85,38 @@ test('an empty survey is not offered as one', () => {
       '   \n',
       'utf8',
     );
-    assert.equal(TaskState.findFindings(repo, TASK, 'abc123'), null);
+    assert.equal(TaskState.findArtifact(repo, TASK, 'abc123', 'explore.md'), null);
   });
 });
 
 test('a repository with no history at all is simply surveyed', () => {
   withRepo((repo) => {
-    assert.equal(TaskState.findFindings(repo, TASK, 'abc123'), null);
+    assert.equal(TaskState.findArtifact(repo, TASK, 'abc123', 'explore.md'), null);
+  });
+});
+
+/**
+ * `fix` reuses the same mechanism for `evidence.md` — the artifact differs,
+ * but the safety property is identical, so it is proven identically rather
+ * than re-derived: a matching task and fingerprint reuse it, and either one
+ * differing means gathering the evidence again.
+ */
+const BUG = 'the cart total is off by a cent on some orders';
+const EVIDENCE = 'Observed\n  totals.ts:42 rounds after tax, should round before';
+
+/** Writes a finished evidence gathering into a repo, under a sortable id. */
+function saveEvidence(repo: RepoInfo, id: string, task: string, fingerprint: string, text = EVIDENCE): void {
+  const state = new TaskState(repo, id);
+  state.write('evidence.md', text);
+  state.write('fingerprint.txt', fingerprint);
+  state.write('task.json', JSON.stringify({ mode: 'fix', task, stage: 'root-cause' }));
+}
+
+test('fix reuses evidence.md the same way plan and feature reuse explore.md', () => {
+  withRepo((repo) => {
+    saveEvidence(repo, '20260801T000000-fix', BUG, 'abc123');
+    assert.equal(TaskState.findArtifact(repo, BUG, 'abc123', 'evidence.md'), EVIDENCE);
+    assert.equal(TaskState.findArtifact(repo, BUG, 'DIFFERENT', 'evidence.md'), null);
+    assert.equal(TaskState.findArtifact(repo, 'a different bug entirely', 'abc123', 'evidence.md'), null);
   });
 });

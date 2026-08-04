@@ -81,7 +81,8 @@ export async function runPlan(
   // failed late and is being retried, which is exactly when paying to explore
   // again is most galling.
   const fingerprint = await repoFingerprint(cwd);
-  const reusable = fingerprint === null ? null : TaskState.findFindings(state.repo, task, fingerprint);
+  const reusable =
+    fingerprint === null ? null : TaskState.findArtifact(state.repo, task, fingerprint, 'explore.md');
   if (reusable !== null) {
     process.stdout.write(pc.dim('  reusing the survey from an earlier attempt\n'));
   }
