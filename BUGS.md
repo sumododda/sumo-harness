@@ -480,6 +480,42 @@ the operator's branch — the way out is one command, and it is named.
 
 ---
 
+### 29. A red test in `fix` could be turned green by editing it, not the bug · FIXED
+
+`fix.ts`'s own module comment claims the ordering is "enforced here in code,
+not requested in a prompt." True of the approval gate, false of the test lock:
+the only thing stopping "make the failing test pass" from being satisfied by
+weakening the test itself was a sentence in `FIX_STAGE` — "do not modify
+tests" — read by the same model being asked to make the test pass. `feature.ts`
+closed exactly this hole with `lockedPaths` the day that field was added to
+`StageSpec`; `fix.ts` never got the port, so the property the docs claimed for
+the whole workflow did not hold for the one gate that mattered most.
+
+Two more gaps sat beside it, both already solved in `feature.ts` and never
+carried over. No pre-existing-failure baseline: `verify()` checks
+`outcome.passed`, all or nothing, so a repo with even one unrelated red test
+made a correct fix unverifiable forever — the ladder retried, escalated twice,
+and gave up on a failure the task did not cause. And no findings reuse: `plan`
+and `feature` skip re-surveying an unchanged repository for a retried task by
+matching `explore.md` against a fingerprint; `fix` writes `evidence.md` and
+never attempted the same trick, so a fix retried after a late failure re-paid
+for evidence gathering it already had.
+
+**Fix:** `fixUntilVerified` now locks whichever test files are currently
+failing — from `failures.testFiles` over the pre-existing and repro output —
+on every attempt, including the first. `runFix` runs the suite once before
+anything is written, same as `feature`'s `preExistingFailures`, and `verify()`
+treats "only pre-existing failures remain" as verified rather than retrying
+against a failure this task did not cause. `TaskState.findFindings` became
+`findArtifact(repo, task, fingerprint, filename)`, parameterised on the
+filename instead of hardcoding `explore.md`, so `fix` reuses `evidence.md`
+through the identical mechanism `plan` and `feature` already used.
+`src/workflows/fix.ts`, `src/state.ts` (`plan.ts` and `feature.ts` updated
+only at the call site) · 4 new tests, against the gate and ladder the workflow
+actually builds rather than one constructed for the test.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

@@ -6,7 +6,9 @@
  *
  * The ordering is enforced here in code, not requested in a prompt: the fix
  * stage is the first one granted write access, and it is unreachable until the
- * gate returns approved.
+ * gate returns approved. And while fixing, the permission gate refuses edits
+ * to whichever test files are already failing, so a red test cannot be made to
+ * pass by editing the test rather than the bug.
  */
 
 import pc from 'picocolors';
@@ -14,6 +16,7 @@ import type { Engine } from '../engine/index.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
 import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gate.ts';
+import { repoFingerprint } from '../hash.ts';
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
 import {
@@ -28,7 +31,7 @@ import { Evidence, jsonSchema, RootCause } from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
-import type { TaskState } from '../state.ts';
+import { TaskState } from '../state.ts';
 import { rungAt, type Rung } from '../types.ts';
 import * as ui from '../ui.ts';
 
@@ -65,8 +68,25 @@ export async function runFix(
 ): Promise<FixOutcome> {
   const { engine, ledger, state, cwd } = ctx;
 
+  // Record what was already broken. Without this a single unrelated red test
+  // makes an otherwise-correct fix unverifiable — verify() is all-or-nothing,
+  // so the ladder would retry, escalate, and give up on a failure this task
+  // did not cause.
+  const preExisting = await preExistingFailures(ctx);
+
+  // The same task against an unchanged repository has the same evidence, and
+  // paying to gather it twice is what a retried fix used to do — see
+  // TaskState.findArtifact.
+  const fingerprint = await repoFingerprint(cwd);
+  const reusable =
+    fingerprint === null ? null : TaskState.findArtifact(state.repo, bug, fingerprint, 'evidence.md');
+  if (reusable !== null) {
+    process.stdout.write(pc.dim('  reusing the evidence from an earlier attempt\n'));
+  }
+
   // 1. Evidence — read-only. Cannot edit even if it decides it knows the answer.
-  const evidence = await runStage(
+  // Skipped outright when a matching attempt already gathered it.
+  const evidence = reusable !== null ? null : await runStage(
     engine,
     {
       name: 'evidence',
@@ -85,18 +105,24 @@ export async function runFix(
     },
     ledger,
   );
-  ui.endTurn();
 
   // A stage cut short by its budget can still return something worth showing,
   // so an unparseable answer degrades to prose rather than ending the task.
-  const found = ui.shownEvidence(evidence.output);
-  const evidenceText = found.prompt;
-  state.write('evidence.md', evidenceText);
-  if (found.value) ui.renderArtifact(found.display);
+  let evidenceText = reusable ?? '';
+  let evidenceValue: Evidence | null = null;
+  if (evidence) {
+    ui.endTurn();
+    const found = ui.shownEvidence(evidence.output);
+    evidenceText = found.prompt;
+    evidenceValue = found.value;
+    if (fingerprint !== null) state.write('fingerprint.txt', fingerprint);
+    state.write('evidence.md', evidenceText);
+    if (found.value) ui.renderArtifact(found.display);
+  }
 
   // 2. Repro — proposed by the model, run by the harness, only with consent.
   // The command is a field now, not something recovered from a heading.
-  const repro = found.value?.repro ? await maybeRunRepro(found.value.repro, ctx) : null;
+  const repro = evidenceValue?.repro ? await maybeRunRepro(evidenceValue.repro, ctx) : null;
   if (repro) state.write('repro.txt', repro);
 
   // 3. Root cause — where thinking actually pays, so effort steps up.
@@ -129,8 +155,13 @@ export async function runFix(
   const approved = await gateRootCause(diagnosis, bug, rung, ctx);
   if (approved.kind === 'stopped') return approved;
 
+  // Whichever tests are already failing are what a lazy "fix" would be tempted
+  // to weaken instead of the actual bug — locked on every attempt, including
+  // the first, not just requested not to be touched in the prompt.
+  const lockedPaths = failures.testFiles(failures.parse(`${preExisting ?? ''}\n${repro ?? ''}`));
+
   // 5 & 6. Fix, verify, and climb the ladder while the tests still fail.
-  return await fixUntilVerified(approved.rootCause, approved.notes, rung, ctx);
+  return await fixUntilVerified(approved.rootCause, approved.notes, preExisting, lockedPaths, rung, ctx);
 }
 
 /**
@@ -140,6 +171,8 @@ export async function runFix(
 async function fixUntilVerified(
   rootCause: string,
   notes: readonly string[],
+  preExisting: string | null,
+  lockedPaths: readonly string[],
   rung: Rung,
   ctx: FixContext,
 ): Promise<FixOutcome> {
@@ -166,6 +199,7 @@ async function fixUntilVerified(
         cwd: ctx.cwd,
         ...(ctx.indexed ? { indexed: true } : {}),
         allowWrites: true,
+        lockedPaths,
         attempt,
         // A minimal fix is by definition a few lines; rewriting whole files to
         // deliver it would generate every line that was already right.
@@ -179,7 +213,7 @@ async function fixUntilVerified(
     ui.endTurn();
     ctx.state.write('fix.md', fix.output);
 
-    const outcome = await verify(ctx);
+    const outcome = await verify(ctx, preExisting);
     if (outcome.kind === 'fixed' && outcome.verified) return outcome;
 
     // Without a way to run tests there is nothing to escalate on; saying the
@@ -361,7 +395,7 @@ async function maybeRunRepro(proposed: string, ctx: FixContext): Promise<string 
 }
 
 /** Runs the tests and reports whether the fix actually worked. */
-async function verify(ctx: FixContext): Promise<FixOutcome> {
+async function verify(ctx: FixContext, preExisting: string | null): Promise<FixOutcome> {
   if (!ctx.testCommand) {
     const files = await runner.changedFiles(ctx.cwd);
     process.stdout.write(
@@ -379,6 +413,36 @@ async function verify(ctx: FixContext): Promise<FixOutcome> {
     return { kind: 'fixed', verified: true };
   }
 
+  // A suite that was already red stays red. Report whether this fix made it
+  // worse, rather than a failure the task did not cause.
+  if (preExisting && runner.newFailures(preExisting, outcome.output).length === 0) {
+    process.stdout.write(
+      pc.green('  tests pass') +
+        pc.yellow(' — the suite is still red from failures that pre-date this task\n'),
+    );
+    return { kind: 'fixed', verified: true };
+  }
+
   process.stdout.write(pc.red('  tests still failing\n'));
   return { kind: 'fixed', verified: false };
+}
+
+/**
+ * Runs the suite before anything is written, so an already-broken project can
+ * be distinguished from breakage this task caused.
+ *
+ * Returns the failing output, or null when the suite was green (the normal
+ * case). Cheap: one deterministic test run, no tokens.
+ */
+async function preExistingFailures(ctx: FixContext): Promise<string | null> {
+  if (!ctx.testCommand) return null;
+
+  const outcome = await runner.runTests(ctx.testCommand, ctx.cwd);
+  if (outcome.passed) return null;
+
+  process.stdout.write(
+    pc.yellow('  note: the suite is already failing before this task starts\n'),
+  );
+  ctx.state.write('pre-existing.txt', outcome.output);
+  return outcome.output;
 }

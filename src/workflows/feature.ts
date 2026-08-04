@@ -113,7 +113,7 @@ export async function runFeature(
   const reusable =
     alreadyApproved || fingerprint === null
       ? null
-      : TaskState.findFindings(state.repo, task, fingerprint);
+      : TaskState.findArtifact(state.repo, task, fingerprint, 'explore.md');
   if (reusable !== null) {
     process.stdout.write(pc.dim('  reusing the survey from an earlier attempt\n'));
   }
