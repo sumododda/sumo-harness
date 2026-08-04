@@ -338,6 +338,45 @@ Re-measured the same way: **40 of 40 samples (100%)**. `src/statusbar.ts` ·
 
 ---
 
+### 26. Boxes were drawn to 120 columns while their contents ran to the terminal edge · FIXED
+
+Reported as *"there is cutoff on the boxes and looks ugly as fuck — can we
+follow shell resizing, no matter what shell I use it just works"*, with a
+screenshot of a wide terminal: neat frames ending well short of the right-hand
+side, and test lines spilling past them to wrap raggedly underneath.
+
+Two causes, and each alone would have looked like a different bug.
+
+`rule()` capped its width at 120 columns, on the reasoning that a very wide
+terminal needs a *visible* line rather than a long one. Defensible for a
+horizontal rule; wrong for everything that measures itself against it, because
+the boxed artifacts derive their frame width from there. On a 165-column
+terminal the frame stopped at 120.
+
+And several call sites pushed text into a box without wrapping it — a test's
+`case`, a repro command, a conventions path, and `entry()` whenever a head and
+its tag together exceeded the width. Those lines ran to the real terminal edge,
+which is what made the frame look broken rather than merely narrow.
+
+**Fix:** the cap is gone — `width()` reports whatever the shell says, read at
+draw time so a resize is picked up by whatever renders next. Every remaining
+call site wraps. `src/statusbar.ts`, `src/ui.ts`.
+
+Measured at five widths, counting characters rather than bytes — every box
+glyph is three-byte UTF-8, which made the first measurement claim 237-column
+lines on an 80-column terminal:
+
+    cols  60 → widest  60 · over-width 0
+    cols  80 → widest  80 · over-width 0
+    cols 100 → widest 100 · over-width 0
+    cols 160 → widest 160 · over-width 0
+    cols 220 → widest 220 · over-width 0
+
+Pinned by a test that renders a deliberately hostile plan — a 200-character test
+name, a long repro command, a deep path — and asserts nothing exceeds the frame.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

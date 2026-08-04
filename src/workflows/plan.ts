@@ -69,7 +69,8 @@ export async function runPlan(
   task: string,
   rung: Rung,
   ctx: PlanContext,
-  conversationContext = '',
+  /** The index's answer for this task. Stable, unlike the conversation. */
+  packContext = '',
 ): Promise<PlanOutcome> {
   const { engine, ledger, state, cwd } = ctx;
 
@@ -78,7 +79,7 @@ export async function runPlan(
     engine,
     {
       name: 'explore',
-      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), conversationContext),
+      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],
       cwd,

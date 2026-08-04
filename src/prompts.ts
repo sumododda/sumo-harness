@@ -139,6 +139,21 @@ ${files.map((f) => `  ${f}`).join('\n')}
 `;
 }
 
+/**
+ * The survey stage runs without the conversation, deliberately.
+ *
+ * Everything else in a turn may read the recent history, but this stage is the
+ * one whose answer must be reusable: it is a survey of the repository against a
+ * task string, and the repository does not change because something was said
+ * three turns ago. Feeding it the history made its prompt different on every
+ * attempt, so the cache key never repeated — retrying a task after it failed
+ * re-ran the survey and paid full price for the same answer. Measured across 30
+ * real tasks, the cache saved $0.09 of $4.60.
+ *
+ * The cost of leaving it out is that this stage cannot resolve "add that to the
+ * CLI too" from an earlier turn; it sees the task text and the file listing.
+ * That is the right trade for a stage whose job is to describe what exists.
+ */
 export const EXPLORE_STAGE = (task: string, files: readonly string[] = [], context = '') =>
   `${context}${fileListing(files)}Task: ${task}
 

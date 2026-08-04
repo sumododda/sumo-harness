@@ -54,7 +54,8 @@ export async function runFix(
   bug: string,
   rung: Rung,
   ctx: FixContext,
-  conversationContext = '',
+  /** The index's answer for this task. Stable, unlike the conversation. */
+  packContext = '',
 ): Promise<FixOutcome> {
   const { engine, ledger, state, cwd } = ctx;
 
@@ -63,7 +64,7 @@ export async function runFix(
     engine,
     {
       name: 'evidence',
-      prompt: EVIDENCE_STAGE(bug, conversationContext),
+      prompt: EVIDENCE_STAGE(bug, packContext),
       // Retrieval, not reasoning: effort stays low regardless of the rung.
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],

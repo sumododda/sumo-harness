@@ -77,7 +77,8 @@ export async function runFeature(
   task: string,
   rung: Rung,
   ctx: FeatureContext,
-  conversationContext = '',
+  /** The index's answer for this task. Stable, unlike the conversation. */
+  packContext = '',
   alreadyApproved?: ApprovedPlan,
 ): Promise<FeatureOutcome> {
   const { engine, ledger, state, cwd } = ctx;
@@ -105,7 +106,7 @@ export async function runFeature(
     engine,
     {
       name: 'explore',
-      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), conversationContext),
+      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
       // Retrieval, not reasoning: effort stays low whatever the rung.
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],

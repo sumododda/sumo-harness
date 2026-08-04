@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { renderPlan, type Plan } from '../src/schemas.ts';
-import { displayEvidence, displayPlan, shownPlan, wrap } from '../src/ui.ts';
+import { displayEvidence, displayPlan, frameWidth, shownPlan, wrap } from '../src/ui.ts';
 
 const PLAN: Plan = {
   approach: 'Add a body param to addNote and a getNote helper that mirrors listNotes.',
@@ -76,11 +76,14 @@ test('an answer that is not in the schema degrades to its own text', () => {
 });
 
 test('nothing drawn is wider than the terminal', () => {
-  // The frame is drawn two narrower than the rule, because both callers —
+  // The frame is drawn two narrower than the terminal, because both callers —
   // renderArtifact and the approval gate — indent what they are given by two.
-  const limit = 120;
+  // Measured against the real width rather than a constant: there is no cap any
+  // more, so a hard number here would pass on a narrow terminal and say nothing
+  // about a wide one.
+  const limit = frameWidth() + 2;
   for (const line of plain(displayPlan(PLAN)).split('\n')) {
-    assert.ok(line.length + 2 <= limit, `line overruns the terminal: ${String(line.length)}`);
+    assert.ok(line.length <= limit, `line overruns the terminal: ${String(line.length)}`);
   }
 });
 
@@ -114,4 +117,53 @@ test('an empty section is left out rather than drawn empty', () => {
   assert.match(shown, /Approach/);
   assert.doesNotMatch(shown, /Steps/, 'a plan with no steps draws no Steps box');
   assert.doesNotMatch(shown, /Risks/);
+});
+
+test('nothing ever escapes the frame it is drawn inside', () => {
+  // The failure this pins down was visible from across the room: the box frames
+  // stopped at 120 columns while their contents ran on to the real terminal
+  // edge and wrapped raggedly underneath. Two causes — a hard width cap, and
+  // several call sites pushing text in without wrapping it — so this measures
+  // the property rather than either cause, and uses content chosen to be
+  // hostile: very long test names, a long repro command, and a deep path.
+  const brutal: Plan = {
+    approach: 'A '.repeat(200),
+    steps: [
+      {
+        file: 'src/very/deeply/nested/package/module/implementation/detail.ts',
+        action: 'edit',
+        detail: 'Change '.repeat(120),
+      },
+    ],
+    tests: [
+      {
+        file: 'test/very/deeply/nested/suite/for/this/module.test.ts',
+        case: 'list truncates a note line to the fallback terminal width when stdout is piped and the title alone is two hundred characters long',
+        whyFailsToday: 'because '.repeat(80),
+      },
+    ],
+    risks: ['x'.repeat(400), 'a genuinely long sentence about something that could go wrong '.repeat(6)],
+  };
+
+  const limit = frameWidth() + 2; // the frame, plus the two-space indent callers add
+  for (const [i, line] of plain(displayPlan(brutal)).split('\n').entries()) {
+    assert.ok(
+      line.length <= limit,
+      `line ${String(i)} is ${String(line.length)} wide, frame allows ${String(limit)}: ${line.slice(0, 70)}`,
+    );
+  }
+
+  const evidence = plain(
+    displayEvidence({
+      observations: [
+        { file: 'src/a/b/c/d/e/f/g/really-quite-long-name.ts', line: 4210, what: 'w '.repeat(150) },
+      ],
+      suspects: ['s'.repeat(300)],
+      repro: 'node --experimental-strip-types src/cli.ts show missing-id 2>&1 | grep -E "something|rather|long" | head -20',
+      hypotheses: ['h '.repeat(200)],
+    }),
+  );
+  for (const line of evidence.split('\n')) {
+    assert.ok(line.length <= limit, `evidence line ${String(line.length)} wide: ${line.slice(0, 70)}`);
+  }
 });

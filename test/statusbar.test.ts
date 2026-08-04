@@ -82,7 +82,10 @@ test('an absurdly narrow terminal still produces something printable', () => {
 
 test('the rule framing a turn fits the terminal', () => {
   assert.equal(rule(40).length, 40);
-  assert.ok(rule(500).length <= 120, 'a very wide terminal needs a visible rule, not a long one');
+  // A wide terminal gets a wide rule. Capping it here also capped the boxed
+  // artifacts, which measure themselves against it — so on a wide screen they
+  // were framed to 120 columns while their contents wrapped to the real edge.
+  assert.equal(rule(500).length, 500, 'the rule follows the terminal, whatever it says');
 });
 
 test('a terminal that reports no width still renders something', () => {

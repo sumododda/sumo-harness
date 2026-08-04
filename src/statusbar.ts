@@ -535,12 +535,30 @@ function clip(text: string, width: number, keep?: string): string {
 }
 
 /**
+ * How wide anything drawn may be.
+ *
+ * Read at the moment of drawing rather than once at start-up, so resizing the
+ * window is picked up by whatever is rendered next with nothing to reconfigure.
+ * `usable` supplies a sane default for the terminals that report no width at
+ * all — a pty, `script`, some editors' embedded shells.
+ */
+export function width(columnCount = columns()): number {
+  return usable(columnCount);
+}
+
+/**
  * A horizontal rule the width of the terminal.
  *
  * Used to frame what the user types, so a session reads as a sequence of turns
- * rather than as one undifferentiated column of text. Capped because a very
- * wide terminal does not need a very long line, only a visible one.
+ * rather than as one undifferentiated column of text.
+ *
+ * This used to stop at 120 columns, on the reasoning that a very wide terminal
+ * needs a visible line rather than a long one. That was defensible for a rule
+ * and wrong for everything measured against it: the boxed artifacts derive
+ * their width from here, so on a wide terminal they were drawn to 120 while
+ * their content wrapped to the real edge — a frame with text spilling out of
+ * the right-hand side of it. Whatever the shell says it is, is what gets used.
  */
 export function rule(columnCount = columns()): string {
-  return '─'.repeat(Math.min(usable(columnCount), 120));
+  return '─'.repeat(width(columnCount));
 }

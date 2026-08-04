@@ -150,7 +150,7 @@ const RAIL = 2;
  * given by two, so the frame is drawn two narrower rather than indenting itself
  * and landing four deep.
  */
-function frameWidth(): number {
+export function frameWidth(): number {
   // rule() already caps very wide terminals and guards one reporting 0 columns.
   return Math.max(24, rule().length - 2);
 }
@@ -207,13 +207,39 @@ function box(title: string, body: readonly string[]): string {
  */
 function entry(head: string, tag: string, detail: string, indent = 3): string[] {
   const w = frameWidth() - RAIL;
-  const pad = ' '.repeat(Math.max(1, w - head.length - tag.length));
-  const first = tag.length > 0 ? `${pc.cyan(head)}${pad}${pc.dim(tag)}` : pc.cyan(head);
   const under = ' '.repeat(indent);
-  return [
-    first,
-    ...wrap(detail, w - indent).map((l) => `${under}${pc.dim(l)}`),
-  ];
+
+  // A head and its tag only share a line when both fit with a gap between them.
+  // Long paths exist, and forcing them together produced a line wider than the
+  // frame it was drawn inside — which is what a box looks like when it is
+  // "cut off": the frame ends and the text keeps going.
+  const lines: string[] = [];
+  if (tag.length > 0 && head.length + tag.length + 1 <= w) {
+    const pad = ' '.repeat(w - head.length - tag.length);
+    lines.push(`${pc.cyan(head)}${pad}${pc.dim(tag)}`);
+  } else {
+    lines.push(...wrap(head, w).map((l) => pc.cyan(l)));
+    if (tag.length > 0) lines.push(`${under}${pc.dim(tag)}`);
+  }
+
+  lines.push(...wrap(detail, w - indent).map((l) => `${under}${pc.dim(l)}`));
+  return lines;
+}
+
+/**
+ * A marked line and its continuations, indented under the mark.
+ *
+ * Wrapping has to happen before colour is applied, because an escape sequence
+ * counts toward a string's length and not toward its width — measure the
+ * coloured form and every line comes out short by however much colour it
+ * carries.
+ */
+function marked(mark: string, text: string, colour: (s: string) => string): string[] {
+  const w = frameWidth() - RAIL;
+  const pad = ' '.repeat(mark.length);
+  return wrap(text, w - mark.length).map((line, i) =>
+    i === 0 ? `${colour(mark)}${line}` : `${pad}${line}`,
+  );
 }
 
 function bullets(items: readonly string[]): string[] {
@@ -250,7 +276,7 @@ export function displayPlan(p: Plan): string {
       // ✗ because a feature test has to fail before the change — the marker is
       // the claim being made, not decoration.
       p.tests.flatMap((t, i) => [
-        `${pc.yellow('✗')} ${t.case}`,
+        ...marked('✗ ', t.case, pc.yellow),
         ...wrap(t.whyFailsToday, frameWidth() - RAIL - 2).map((l) => `  ${pc.dim(l)}`),
         // Most plans put every test in one file, and repeating that under each
         // one is three lines of noise saying the same thing. Named only when it
@@ -269,7 +295,10 @@ export function displayExplore(e: Explore): string {
       'Reuse',
       e.reuse.flatMap((r) => entry(r.symbol, r.file, r.why)),
     ),
-    box('Conventions', [...paragraph(e.conventions.note), pc.dim(e.conventions.example)]),
+    box('Conventions', [
+      ...paragraph(e.conventions.note),
+      ...wrap(e.conventions.example, frameWidth() - RAIL).map((l) => pc.dim(l)),
+    ]),
     box('Constraints', bullets(e.constraints)),
   ]);
 }
@@ -281,7 +310,10 @@ export function displayEvidence(e: Evidence): string {
       e.observations.flatMap((o) => entry(`${o.file}:${String(o.line)}`, '', o.what)),
     ),
     box('Suspects', bullets(e.suspects)),
-    box('Repro', e.repro === null ? [] : [pc.cyan(e.repro)]),
+    box(
+      'Repro',
+      e.repro === null ? [] : wrap(e.repro, frameWidth() - RAIL).map((l) => pc.cyan(l)),
+    ),
     box('Hypotheses', bullets(e.hypotheses)),
   ]);
 }

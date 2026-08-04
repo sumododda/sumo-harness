@@ -385,7 +385,8 @@ async function runWorkflowTurn(
 
   try {
     const pack = await packFor(deps, task, { mode, rung });
-    const withPack = contextWithPack(context, pack);
+    // Deliberately not `contextWithPack`: see packBlock.
+    const withPack = packBlock(pack);
     const staged = { ...ctx, indexed: pack.length > 0, packChars: pack.length };
 
     let approved: ApprovedPlan | undefined;
@@ -886,7 +887,20 @@ async function packFor(
 /** Prepends the index's answer so the model starts with the relevant code. */
 function contextWithPack(conversation: string, pack: string): string {
   if (!pack) return conversation;
-  return `${conversation}Relevant code, from this repository's index:\n${pack}\n\n`;
+  return `${conversation}${packBlock(pack)}`;
+}
+
+/**
+ * The index's answer alone, without the conversation.
+ *
+ * Staged workflows are given this rather than the combined block. The pack is
+ * derived from the task and the repository, so it repeats when they do; the
+ * conversation does not, and mixing them made a survey stage's prompt different
+ * on every attempt — which is why retrying a task never hit the cache.
+ */
+function packBlock(pack: string): string {
+  if (!pack) return '';
+  return `Relevant code, from this repository's index:\n${pack}\n\n`;
 }
 
 function firstLine(text: string): string {
