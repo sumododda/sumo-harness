@@ -305,6 +305,39 @@ the operator, so `producedNothing(stage, stopped)` carries both.
 
 ---
 
+### 25. The input line vanished for exactly as long as a stage had something to say · FIXED
+
+Reported as *"there is no way for me to type — the input thingy is gone"*, with
+a screenshot of a running stage: tool lines, then nothing where the prompt
+should be.
+
+Every write to the terminal erases the live region, and the region was only
+repainted once the terminal had been quiet for 200ms. A stage streaming output
+never went quiet, so the prompt was absent whenever there was output — which is
+precisely when someone wants to interrupt. Measured during a real stage: the
+prompt was on screen in **6 of 40 samples (15%)**.
+
+It came back the moment you typed a character, because holding — which buffers
+output at line boundaries and keeps the cursor at a line start — was gated on
+the buffer being non-empty. So the affordance appeared only after you had tried
+the thing it existed to tell you was possible.
+
+Two causes, both fixed:
+
+- The quiet rule was applied to the whole block. It belongs to the activity
+  line, which animates a spinner and a clock and is what actually strobes; the
+  input line is static text, so repainting it after every write changes nothing
+  on screen. `compose()` now gates the two separately.
+- Holding started on the first keystroke rather than when the input line opened.
+  A partial line leaves the cursor mid-sentence, which is the one position the
+  block cannot be drawn in — so without holding, most of a streaming stage was
+  undrawable regardless of the quiet rule. It now starts with the input line.
+
+Re-measured the same way: **40 of 40 samples (100%)**. `src/statusbar.ts` ·
+3 tests, one of which asserts the prompt survives 40 consecutive writes.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

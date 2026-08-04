@@ -91,37 +91,55 @@ test('a half-written message survives output that never reaches a newline', () =
   });
 });
 
-test('output held while typing is released once the message is sent', () => {
+test('an incomplete line is held for as long as the input line is open', () => {
   onFakeTerminal((seen) => {
     enable('sumo-news');
     openInput('› ');
-    setInput('one moment', 10);
 
+    // No one has typed anything. Holding still applies, and that is the point:
+    // an incomplete line leaves the cursor mid-sentence, which is the one place
+    // the input line cannot be drawn. Gating this on typing meant the prompt
+    // was absent until you typed something you had no reason to think would
+    // work — measured at 15% of a streaming stage, against 100% now.
     process.stdout.write('The cart total is wrong');
-    assert.ok(!seen().includes('The cart total is wrong'), 'held while there is unsent text');
+    assert.ok(!seen().includes('The cart total is wrong'), 'the incomplete tail waits');
 
-    // Sending clears the buffer, which is what releases the backlog.
-    setInput('', 0);
-    assert.ok(seen().includes('The cart total is wrong'), 'and printed the moment it can be');
+    // Its newline is what releases it: the cursor is back at a line start.
+    process.stdout.write('\n');
+    assert.ok(seen().includes('The cart total is wrong'), 'and goes out with its newline');
+  });
+});
+
+test('closing the input line releases whatever was still held', () => {
+  onFakeTerminal((seen) => {
+    enable('sumo-news');
+    openInput('› ');
+
+    process.stdout.write('half a sentence with no newline');
+    assert.ok(!seen().includes('half a sentence'), 'held while the line is open');
+
+    // Nothing may be swallowed by the region. Closing it hands everything back.
+    openInput(null);
+    assert.ok(seen().includes('half a sentence with no newline'), 'released on close');
   });
 });
 
 test('a partial row already on screen is taken back rather than typed over', () => {
   onFakeTerminal((seen) => {
     enable('sumo-news');
-    openInput('› ');
 
-    // Output lands first, leaving the cursor mid-sentence...
+    // Output lands while nothing is holding it, so a partial row reaches the
+    // screen and the cursor sits mid-sentence...
     process.stdout.write('Reading src/cart.js');
-    // ...and only then does someone start typing.
-    setInput('w', 1);
+    // ...and only then does the input line open and claim the bottom.
+    openInput('› ');
 
     const after = seen();
     assert.ok(after.includes('\r\x1b[2K'), 'the partial row is cleared, not written under');
-    assert.ok(after.lastIndexOf('w') > after.lastIndexOf('Reading src/cart.js'));
+    assert.ok(after.lastIndexOf('› ') > after.lastIndexOf('Reading src/cart.js'));
 
-    // The recalled text is not lost — it comes back when the buffer empties.
-    setInput('', 0);
+    // The recalled text is not lost — closing the line puts it back.
+    openInput(null);
     assert.ok(
       seen().slice(after.length).includes('Reading src/cart.js'),
       'the row that was taken back is put back',
@@ -214,5 +232,28 @@ test('nothing is held once the input line is closed', () => {
 
     process.stdout.write('after the close');
     assert.ok(seen().includes('after the close'), 'and later writes pass straight through');
+  });
+});
+
+test('the prompt survives a stage that streams without pausing', () => {
+  onFakeTerminal((seen) => {
+    enable('sumo-news');
+    activity('explore 1/4');
+    openInput('› ');
+
+    // The failure this pins down was reported as "there is no way for me to
+    // type — the input thingy is gone". Every write erases the block, and the
+    // block was only repainted once the terminal had been quiet for 200ms — so
+    // a stage with something to say kept the prompt off screen for exactly as
+    // long as it was worth interrupting. Measured at 15% of samples during a
+    // real stage; this asserts the property that took it to 100%.
+    for (let i = 0; i < 40; i += 1) {
+      process.stdout.write(`  read src/file-${String(i)}.ts\n`);
+      const painted = seen();
+      assert.ok(
+        painted.slice(painted.lastIndexOf('read src/file-')).includes('› '),
+        `prompt missing after write ${String(i)}`,
+      );
+    }
   });
 });

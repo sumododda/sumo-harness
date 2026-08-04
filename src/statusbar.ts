@@ -184,7 +184,11 @@ function wrap(stream: NodeJS.WriteStream): void {
     }
 
     trackRow(text);
-    return (original as (...args: unknown[]) => boolean)(chunk, ...rest);
+    const wrote = (original as (...args: unknown[]) => boolean)(chunk, ...rest);
+    // Put the block back immediately. Leaving it to the next tick meant a stage
+    // writing faster than the tick could restore it kept the prompt off screen.
+    draw();
+    return wrote;
   });
 }
 
@@ -353,9 +357,21 @@ export function openInput(text: string | null): void {
   prompt = text;
   buffer = '';
   bufferCursor = 0;
-  stopHolding();
-  if (text === null) erase();
-  else draw();
+  // Holding is what keeps the bottom of the screen ownable, so it starts when
+  // the input line does rather than when the first key is pressed. Streamed
+  // output arrives as partial lines, and a partial line leaves the cursor
+  // mid-sentence — where the block cannot be drawn without landing in the
+  // middle of it. Withholding the incomplete tail keeps the cursor at a line
+  // start, which is the condition the input line needs in order to exist at
+  // all. Gated on typing, it meant the prompt was absent until you typed
+  // something you had no reason to believe would work.
+  if (text === null) {
+    stopHolding();
+    erase();
+  } else {
+    startHolding();
+    draw();
+  }
 }
 
 /**
@@ -369,7 +385,7 @@ export function setInput(text: string, cursor: number): void {
   buffer = text;
   bufferCursor = Math.max(0, Math.min(cursor, text.length));
 
-  if (prompt !== null && text !== '') startHolding();
+  if (prompt !== null) startHolding();
   else stopHolding();
 
   draw();
@@ -403,8 +419,6 @@ function draw(): void {
   // point of holding — text you have typed is redrawn on every keystroke,
   // whatever the stage is doing.
   if (!atLineStart) return;
-  // Still writing, and nothing typed that needs showing at once.
-  if (buffer === '' && Date.now() - lastWriteAt < QUIET_MS) return;
 
   erase();
   emit(lines.join('\n'));
@@ -418,10 +432,26 @@ function draw(): void {
   }
 }
 
-/** The block's lines, top to bottom. */
+/**
+ * The block's lines, top to bottom.
+ *
+ * The quiet rule applies to the activity line and not to the input line, and
+ * the difference is the whole point. The activity line animates — a spinner and
+ * a clock — so redrawing it between streamed chunks is what strobes, and it is
+ * worth suppressing while output flows. The input line is static text: redrawing
+ * it after every write changes nothing on screen, and it must survive, because
+ * it is the only thing telling you that typing is possible at all.
+ *
+ * Suppressing both was the bug. A stage streaming steadily kept `lastWriteAt`
+ * inside the quiet window, so the whole block was erased by each write and
+ * never repainted — the prompt vanished for exactly as long as the stage had
+ * something to say, which is exactly when someone wants to interrupt it. It
+ * came back only once you had typed something, which you had no reason to try.
+ */
 function compose(): string[] {
   const lines: string[] = [];
-  if (state.activity !== '') lines.push(pc.dim(render()));
+  const settled = buffer !== '' || Date.now() - lastWriteAt >= QUIET_MS;
+  if (state.activity !== '' && settled) lines.push(pc.dim(render()));
   if (prompt !== null) lines.push(renderInput(prompt, buffer, bufferCursor, columns()).line);
   return lines;
 }
