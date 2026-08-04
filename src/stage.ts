@@ -72,7 +72,22 @@ export interface StageSpec {
 }
 
 const DEFAULT_TURNS = 20;
-const DEFAULT_BUDGET_USD = 1.0;
+
+/**
+ * There is no default spending cap on a stage, deliberately.
+ *
+ * There was one, of a dollar, and it did the opposite of what a cap is for. A
+ * stage that answers in a schema produces nothing until it produces the whole
+ * thing, so being cut off part-way did not buy a cheaper answer — it bought a
+ * dollar of reading and thinking, discarded, and a retry that began again from
+ * nothing. The cap turned an expensive stage into an expensive stage that also
+ * failed.
+ *
+ * What bounds a stage is {@link DEFAULT_TURNS}: a limit on how much it may do,
+ * which is something it can finish inside. A caller that genuinely wants a
+ * ceiling still passes `maxBudgetUsd` — `sumo do --budget` does, and so does
+ * the routing classifier, where two cents is the whole point of the call.
+ */
 
 export async function runStage(
   engine: Engine,
@@ -137,7 +152,7 @@ export async function runStage(
     capabilities: spec.capabilities,
     cwd: spec.cwd,
     maxTurns: spec.maxTurns ?? DEFAULT_TURNS,
-    maxBudgetUsd: spec.maxBudgetUsd ?? DEFAULT_BUDGET_USD,
+    ...(spec.maxBudgetUsd !== undefined ? { maxBudgetUsd: spec.maxBudgetUsd } : {}),
     gate: buildGate({
       root: spec.cwd,
       allowWrites,
@@ -172,9 +187,7 @@ export async function runStage(
   }
 
   if (result.stopped === 'budget') {
-    process.stderr.write(
-      pc.yellow(`  stage hit its $${spec.maxBudgetUsd ?? DEFAULT_BUDGET_USD} budget\n`),
-    );
+    process.stderr.write(pc.yellow(`  stage hit its $${String(spec.maxBudgetUsd)} budget\n`));
   } else if (result.stopped === 'turns') {
     process.stderr.write(pc.yellow(`  stage hit its turn limit\n`));
   }
@@ -246,9 +259,10 @@ async function cacheKeyFor(
     lockedPaths: [...(spec.lockedPaths ?? [])].sort(),
     indexed: spec.indexed ?? false,
     // Both can truncate a result, so a run under a larger budget is a different
-    // question from the same prompt under a smaller one.
+    // question from the same prompt under a smaller one. `null` is its own
+    // value here: uncapped and capped-at-some-number are not the same question.
     maxTurns: spec.maxTurns ?? DEFAULT_TURNS,
-    maxBudgetUsd: spec.maxBudgetUsd ?? DEFAULT_BUDGET_USD,
+    maxBudgetUsd: spec.maxBudgetUsd ?? null,
     fingerprint,
   });
 }

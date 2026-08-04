@@ -377,6 +377,56 @@ name, a long repro command, a deep path — and asserts nothing exceeds the fram
 
 ---
 
+### 27. The cache saved 2% of what it claimed, and a failed stage lost everything · FIXED
+
+Reported after a plan stage exhausted its budget: *"the plan stage produced no
+answer, and after that if I continue it just reset and started to explore the
+project again."*
+
+Both halves were real, and the second was the expensive one. From
+`.sumo/metrics.jsonl`, 30 real tasks:
+
+    total spent   $4.6042
+    saved by cache  $0.0936     (2%)
+
+The same task, run twice, cost near-full price both times — `$0.2526` then
+`$0.2393`. The README's claim that *"nothing identical is paid for twice"* was
+false in the case that matters most: retrying after a failure.
+
+The cache key is the exact prompt, and `repl.ts` builds it as
+
+    conversation.add('user', input);
+    const context = conversation.contextBlock();
+
+so the conversation grows every turn and the key never repeats. That cascades:
+a different survey gives different findings, which gives the plan stage a
+different prompt too, so nothing downstream hits either.
+
+**Fix, in two layers.**
+
+The survey stages — `explore` and `evidence` — no longer receive the
+conversation. They are given the index pack, which is derived from the task and
+the repository and therefore repeats when those do. The cost is that they can no
+longer resolve "add that to the CLI too" from an earlier turn; they see the task
+text and the file listing, which is the right trade for a stage whose job is to
+describe what exists.
+
+And when the cache misses anyway — cleared, evicted — a saved survey is reused
+if the task text matches *and* the repository fingerprint is identical.
+Fingerprint equality is what makes this safe: findings name files, so reusing
+them across a change to those files would be confidently wrong rather than
+merely stale. `src/state.ts`, `src/prompts.ts`, three workflows · 6 tests, four
+of which assert it *refuses* to reuse.
+
+Also removed: the $1 default spending cap on a stage. A stage answering in a
+schema produces nothing until it produces all of it, so being cut off part-way
+bought no answer *plus* everything already spent — and then the retry started
+from nothing. What bounds a stage is its turn limit, which is a thing it can
+finish inside. Callers that want a ceiling still pass one; the routing
+classifier keeps its two cents.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`

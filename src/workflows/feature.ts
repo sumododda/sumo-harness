@@ -19,12 +19,13 @@ import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gat
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
 import { DISCUSS_STAGE, EXPLORE_STAGE, FEATURE_PLAN_STAGE, IMPLEMENT_STAGE, WRITE_TESTS_STAGE } from '../prompts.ts';
+import { repoFingerprint } from '../hash.ts';
 import * as runner from '../runner.ts';
 import { Explore, jsonSchema, Plan } from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
-import type { TaskState } from '../state.ts';
+import { TaskState } from '../state.ts';
 import { rungAt, type Rung } from '../types.ts';
 import * as ui from '../ui.ts';
 
@@ -98,11 +99,27 @@ export async function runFeature(
   // would look like it had written something.
   const alreadyChanged = new Set(await runner.changedFiles(cwd));
 
+  // A survey of an unchanged repository for a task already surveyed is the same
+  // survey. The stage cache normally covers this, but it is keyed on the exact
+  // prompt and can be cleared — and the case that matters most is a task that
+  // failed late and is being retried, which is when paying to explore all over
+  // again is most galling. Safe because the fingerprint has to match: findings
+  // describe files, so reusing them across a change to those files would be
+  // confidently wrong rather than merely stale.
+  const fingerprint = await repoFingerprint(cwd);
+  const reusable =
+    alreadyApproved || fingerprint === null
+      ? null
+      : TaskState.findFindings(state.repo, task, fingerprint);
+  if (reusable !== null) {
+    process.stdout.write(pc.dim('  reusing the survey from an earlier attempt\n'));
+  }
+
   // 1. Explore — read-only. Its job is to find what already exists. Skipped
   // outright when `plan` mode already did it and the operator approved what it
   // produced; re-running it would replay from cache, but only to arrive back at
   // an answer that was handed over in the first place.
-  const explore = alreadyApproved ? null : await runStage(
+  const explore = alreadyApproved || reusable !== null ? null : await runStage(
     engine,
     {
       name: 'explore',
@@ -121,11 +138,13 @@ export async function runFeature(
     },
     ledger,
   );
-  let exploreText = alreadyApproved?.findings ?? '';
+  let exploreText = alreadyApproved?.findings ?? reusable ?? '';
+
   if (explore) {
     ui.endTurn();
     const found = ui.shownExplore(explore.output);
     exploreText = found.prompt;
+    if (fingerprint !== null) ctx.state.write('fingerprint.txt', fingerprint);
     state.write('explore.md', exploreText);
     if (found.value) ui.renderArtifact(found.display);
   }

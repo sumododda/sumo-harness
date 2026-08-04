@@ -103,7 +103,7 @@ export class ClaudeEngine implements Engine {
       allowedTools: approved,
       permissionMode: 'dontAsk',
       maxTurns: req.maxTurns,
-      maxBudgetUsd: req.maxBudgetUsd,
+      ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(req.outputSchema
         ? { outputFormat: { type: 'json_schema' as const, schema: req.outputSchema } }

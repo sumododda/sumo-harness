@@ -77,6 +77,39 @@ export class TaskState {
   }
 
   /** The most recent task in this repo, or null when there is none. */
+  /**
+   * A previous run's survey of the repository, when one still applies.
+   *
+   * The stage cache already covers the common case — an identical retry replays
+   * for nothing — but it is keyed on the exact prompt and can be cleared or
+   * evicted, and then a task that failed late pays to survey the repository all
+   * over again. That is the case this covers: the same task, against the same
+   * repository, has the same answer whether or not anything remembered it.
+   *
+   * The fingerprint is what makes it safe. Findings describe files, so reusing
+   * them across a change to those files would be worse than re-reading — it
+   * would be confidently wrong. Matching fingerprints mean the repository is
+   * byte-for-byte what it was when the survey was written.
+   */
+  static findFindings(repo: RepoInfo, task: string, fingerprint: string): string | null {
+    try {
+      const tasks = join(repo.root, '.sumo', 'tasks');
+      // Newest first: the most recent survey of an unchanged repo is as good as
+      // any older one, and stops the scan sooner.
+      for (const id of readdirSync(tasks).sort().reverse()) {
+        const prior = new TaskState(repo, id);
+        if (prior.read('fingerprint.txt')?.trim() !== fingerprint) continue;
+        if (prior.loadProgress()?.task !== task) continue;
+        const findings = prior.read('explore.md');
+        if (findings && findings.trim().length > 0) return findings;
+      }
+    } catch {
+      // No task directory yet, or an unreadable one. Surveying again is always
+      // correct; it is only slower.
+    }
+    return null;
+  }
+
   static latest(repo: RepoInfo): TaskState | null {
     try {
       const tasks = join(repo.root, '.sumo', 'tasks');

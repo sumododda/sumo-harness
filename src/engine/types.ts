@@ -39,7 +39,15 @@ export interface StageRequest {
   /** Where the work happens. */
   readonly cwd: string;
   readonly maxTurns: number;
-  readonly maxBudgetUsd: number;
+  /**
+   * A spending ceiling, when the caller wants one.
+   *
+   * Optional because the useful bound on a stage is `maxTurns` — how much it
+   * may do — rather than how much it may spend. A schema-answering stage cut
+   * off part-way returns nothing at all, so a money cap does not buy a cheaper
+   * answer, it buys no answer plus everything already spent.
+   */
+  readonly maxBudgetUsd?: number;
   /** Vetoes a tool call before it runs. Enforces read-only stages and path confinement. */
   readonly gate?: ToolGate;
   /** When set, the provider must return a final answer validating against this JSON Schema. */
