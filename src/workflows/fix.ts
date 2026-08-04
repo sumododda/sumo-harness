@@ -15,6 +15,7 @@ import pc from 'picocolors';
 import type { Engine } from '../engine/index.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
+import * as features from '../features.ts';
 import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gate.ts';
 import { repoFingerprint } from '../hash.ts';
 import type { LineReader } from '../input.ts';
@@ -67,6 +68,11 @@ export async function runFix(
   packContext = '',
 ): Promise<FixOutcome> {
   const { engine, ledger, state, cwd } = ctx;
+
+  // What this task's own stages are allowed to revert on a failed retry is
+  // "everything that wasn't already dirty" — recorded before anything runs,
+  // so unrelated in-flight work is never mistaken for a failed attempt's mess.
+  const alreadyChanged = new Set(await runner.changedFiles(cwd));
 
   // Record what was already broken. Without this a single unrelated red test
   // makes an otherwise-correct fix unverifiable — verify() is all-or-nothing,
@@ -161,7 +167,15 @@ export async function runFix(
   const lockedPaths = failures.testFiles(failures.parse(`${preExisting ?? ''}\n${repro ?? ''}`));
 
   // 5 & 6. Fix, verify, and climb the ladder while the tests still fail.
-  return await fixUntilVerified(approved.rootCause, approved.notes, preExisting, lockedPaths, rung, ctx);
+  return await fixUntilVerified(
+    approved.rootCause,
+    approved.notes,
+    preExisting,
+    lockedPaths,
+    alreadyChanged,
+    rung,
+    ctx,
+  );
 }
 
 /**
@@ -173,6 +187,7 @@ async function fixUntilVerified(
   notes: readonly string[],
   preExisting: string | null,
   lockedPaths: readonly string[],
+  alreadyChanged: ReadonlySet<string>,
   rung: Rung,
   ctx: FixContext,
 ): Promise<FixOutcome> {
@@ -248,6 +263,15 @@ async function fixUntilVerified(
         // evidence: fall back to what the runner actually said.
         (table === '' ? `Test output:\n${output}` : `Failing tests:\n${table}`),
     ];
+
+    // The next prompt describes a clean task, but the disk still holds
+    // whatever the failed attempt wrote — revert exactly that, so the next
+    // attempt actually starts from the tree the prompt claims it does.
+    if (features.get().cleanRetries) {
+      const nowChanged = new Set(await runner.changedFiles(ctx.cwd));
+      const toRevert = [...nowChanged].filter((f) => !alreadyChanged.has(f));
+      await runner.revertChanges(ctx.cwd, toRevert);
+    }
   }
 }
 

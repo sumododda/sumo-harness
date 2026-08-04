@@ -654,6 +654,39 @@ never waved through.
 
 ---
 
+### 33. A retried attempt was handed a clean prompt against a dirty tree · FIXED
+
+`fixUntilVerified` and `implementUntilVerified` already retry cleanly on the
+model's side: a failed attempt's conversation is never carried forward, and
+the next stage starts fresh with only a failure-table summary. Neither
+workflow did the equivalent on disk. Whatever files the failed attempt
+actually wrote — a half-applied edit, a stray new file — stayed exactly where
+it left them, and the next prompt ("make exactly this change" /
+"implement the plan") read as if starting from a clean tree while the tree
+already held a previous, failed attempt's mess. The model had no way to know,
+because nothing told it.
+
+**Fix:** both workflows now compute `alreadyChanged` — what `git` already
+reported as changed before the task's own stages ran a single one — and, on
+each failed retry, revert everything the task has touched since that no
+longer belongs to the surviving state: `runner.revertChanges` restores a
+tracked file with `git checkout --` and deletes an untracked one outright,
+since `checkout --` only knows paths git already has a version of and would
+silently leave a brand-new file sitting on disk. `feature.ts`'s revert set
+additionally excludes the locked test files written this task, or the
+test-first guarantee would not survive its own retries. Gated behind
+`features.cleanRetries`, on by default.
+
+The property that mattered most and was tested first: a file already dirty
+before the task started — the operator's own in-flight work — is untouched by
+`alreadyChanged`'s exclusion and so survives every retry byte for byte,
+proven against the real retry loop rather than the set-difference logic in
+isolation. `src/runner.ts`, `src/workflows/fix.ts`, `src/workflows/feature.ts`,
+`src/features.ts` · 10 tests, including one running with no git repository at
+all to confirm the revert is skipped rather than guessed at.
+
+---
+
 ## Open — not yet fixed
 
 ### 21. Old progress files keep their stale `finished: true`
