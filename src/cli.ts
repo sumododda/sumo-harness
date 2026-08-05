@@ -34,6 +34,7 @@ import { runBench } from './bench.ts';
 import * as features from './features.ts';
 import { estimateTokens, loadProfile, PROFILE_PATH, remember } from './profile.ts';
 import { repl } from './repl.ts';
+import { runSetup } from './setup.ts';
 import { runDo } from './workflows/do.ts';
 import { SumoError } from './types.ts';
 
@@ -55,6 +56,18 @@ program
     // the default action, so the cache setting is applied here too.
     features.set({ cache: program.opts<{ cache: boolean }>().cache });
     process.exitCode = await repl(opts.provider);
+  });
+
+program
+  .command('setup')
+  .description('Install and index everything this repository needs, once')
+  .option('-y, --yes', 'install without asking')
+  .option('--dry-run', 'say what would happen and change nothing')
+  .action(async (opts: { yes?: boolean; dryRun?: boolean }) => {
+    process.exitCode = await runSetup({
+      ...(opts.yes !== undefined ? { yes: opts.yes } : {}),
+      ...(opts.dryRun !== undefined ? { dryRun: opts.dryRun } : {}),
+    });
   });
 
 program

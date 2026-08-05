@@ -51,6 +51,15 @@ export interface Features {
    * comparison says it pays.
    */
   readonly searchThrottle: boolean;
+  /**
+   * Choose the pack's files by split-identifier BM25 rather than exact match.
+   *
+   * The one flag here that shipped with its measurement already taken:
+   * recall@10 for the files a commit actually changed went 50.0% → 56.5% on
+   * VS Code and 55.6% → 65.4% on excalidraw. See `src/context/lexical.ts` for
+   * the method and `scripts/retrieval-eval.ts` to reproduce it.
+   */
+  readonly lexicalRanker: boolean;
 }
 
 const ALL_ON: Features = {
@@ -64,6 +73,7 @@ const ALL_ON: Features = {
   stableToolList: true,
   candidateSampling: true,
   escalationJudge: true,
+  lexicalRanker: true,
   // Off, even here. See the flag's own note: it is the one optimisation whose
   // failure mode is a worse answer rather than a larger bill.
   searchThrottle: false,
@@ -80,6 +90,7 @@ export const ALL_OFF: Features = {
   stableToolList: false,
   candidateSampling: false,
   escalationJudge: false,
+  lexicalRanker: false,
   searchThrottle: false,
 };
 

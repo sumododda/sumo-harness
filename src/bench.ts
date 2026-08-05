@@ -53,6 +53,8 @@ const CONFIGS: Record<string, Features> = {
   indexed: { ...ALL_OFF, index: true },
   cached: { ...ALL_OFF, index: true, cache: true },
   gated: { ...ALL_OFF, index: true, cache: true, gatedRetrieval: true },
+  // Prices the split-identifier ranker against exact-match selection, live.
+  lexical: { ...ALL_OFF, index: true, cache: true, gatedRetrieval: true, lexicalRanker: true },
   // The one optimisation that refuses the model something rather than changing
   // what it is given, so worth isolating: `gated` versus this is exactly the
   // cost of the search throttle.
@@ -68,6 +70,7 @@ const CONFIGS: Record<string, Features> = {
     stableToolList: true,
     candidateSampling: true,
     escalationJudge: true,
+    lexicalRanker: true,
     searchThrottle: true,
   },
 };

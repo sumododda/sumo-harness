@@ -71,6 +71,21 @@ npm pack                                 # on this machine → sumo-harness-0.1.
 npm install -g ./sumo-harness-0.1.0.tgz  # on the other one
 ```
 
+## First run in a project
+
+```sh
+cd your-project
+sumo setup
+```
+
+Detects what the project is written in, installs the language servers for those
+languages (asking first — it is the one command allowed to reach outside the
+repository), builds the code index and the file ranker, finds the test command,
+and turns the precision layer on for whatever is now available. `--dry-run` says
+what it would do; `--yes` skips the question when provisioning a machine.
+
+Skipping it is fine. It costs a slower first task, never a broken one.
+
 ## Usage
 
 Run `sumo` in any repo to open the shell. Type normally — it picks the mode and
@@ -197,6 +212,34 @@ Iterating on a feature stays on one branch. Already being on a `sumo/…` branch
 means the next task continues there rather than cutting a second one off the
 first — three turns of refinement used to leave three branches pointing at the
 same commit, each forked from the last.
+
+**Which files a task is about is decided lexically, and locally.** BM25 over
+identifiers split into their parts, plus each file's own path — no model, no
+network, milliseconds per query. Splitting is what makes it work: `addNoteTag`
+indexed only as itself can be found by someone who already knows to type it,
+while indexed also as `add`, `note`, `tag` it is found by someone describing
+what they want.
+
+Measured against real commits, each commit's message as the query and the files
+it changed as the answer:
+
+| | recall@10 | MRR |
+|---|---|---|
+| exact match, on 12,762 files | 50.0% | 0.528 |
+| **+ split identifiers and paths** | **56.5%** | **0.578** |
+| exact match, on 635 files | 55.1% | 0.445 |
+| **+ split identifiers and paths** | **64.9%** | **0.543** |
+
+The gain holds on the hard subset — the commits whose message never names a file
+that changed — so it is not messages quoting filenames back. A reference-graph
+PageRank and a one-hop neighbour boost were both measured and both lost; the
+numbers and the reasoning are in `scripts/retrieval-eval.ts`, which reproduces
+all of this against any clone.
+
+The pack is then three rings: bodies and call paths for the few files a task is
+most likely to be about, signatures for the ring around them, and bare paths
+beyond that. Reading deeper is always available and never rationed — the rings
+decide what arrives unasked for, not what may be had.
 
 **Context comes from an index, not from reading around.** `/index` builds a
 tree-sitter symbol and call graph in local SQLite. The harness then queries it
@@ -424,8 +467,9 @@ src/
   state.ts          .sumo/ task artifacts, independent of provider sessions
   types.ts          provider-neutral vocabulary
   ui.ts             terminal rendering, and the same artifacts laid out for a person
+  setup.ts          `sumo setup`: install, index, configure, once per project
   route/            local routing: tokenizer.ts, embed.ts, corpus.ts, local.ts
-  context/          the code-context seam: codegraph.ts, lsp.ts, index.ts, types.ts
+  context/          the code-context seam: codegraph.ts, lexical.ts, lsp.ts, index.ts
   engine/           the provider seam: claude.ts, index.ts, types.ts
   workflows/        do.ts, plan.ts, fix.ts, feature.ts
 ```
