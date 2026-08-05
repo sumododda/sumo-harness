@@ -220,8 +220,15 @@ would receive the relevant code and then `Read` the whole file it came from
 anyway. Signatures are enough to see what exists, and the stage is told plainly
 that naming a symbol is how to get its body.
 
-With an index present the gate also throttles broad searching after a couple of
-calls, pointing the model back at the context it was already given.
+The gate can also throttle text searching once an index is present, on the
+theory that broad searching is waste when the relevant code has already been
+selected. That is off by default, and it is the only optimisation here that is.
+Every other one changes what a stage is *given*, so a wrong call costs tokens;
+this one changes what a stage may *find out*, so a wrong call costs an answer —
+and a stage denied a search does not say it is stuck, it proceeds with less.
+A few searches are worth fractions of a cent against a plan written without
+understanding the code. `sumo bench --configs gated,throttled` prices it, and
+it stays off until that says it pays.
 
 `/lsp` adds a precision layer on top — real language servers for exact
 definitions and references. Search always stays with the index, which is the one

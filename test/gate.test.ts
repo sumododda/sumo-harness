@@ -253,3 +253,19 @@ test('the throttle can be switched off, like every other optimisation', async ()
     features.set(original);
   }
 });
+
+test('searching is not throttled by default', async () => {
+  const features = await import('../src/features.ts');
+
+  // The default that matters. Every other flag changes what a stage is given,
+  // so a wrong call there costs tokens; this one changes what a stage may find
+  // out, so a wrong call costs an answer. A stage that cannot search does not
+  // report being stuck — it proceeds on whatever it has, which is the failure
+  // the rest of this file exists to prevent.
+  assert.equal(features.get().searchThrottle, false, 'must be off unless measured to pay');
+
+  const gate = buildGate({ root: ROOT, allowWrites: false, indexed: true });
+  for (let i = 0; i < 25; i += 1) {
+    assert.equal(gate('Grep', { pattern: `thing-${String(i)}` }), null, `search ${String(i)}`);
+  }
+});

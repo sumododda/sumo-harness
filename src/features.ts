@@ -32,10 +32,23 @@ export interface Features {
   /**
    * Refuse text searches past a per-stage allowance once the index has spoken.
    *
-   * A flag because it is an optimisation and every optimisation here is a claim
-   * that has to survive `sumo bench`. This one was the exception for a while,
-   * which is how it stayed unmeasured while being the only one that refuses the
-   * model something it asked for — the rest merely change what it is given.
+   * Default off, and the only optimisation here that is.
+   *
+   * Every other flag changes what a stage is *given*, so getting one wrong
+   * costs tokens. This one changes what a stage is *allowed to find out*, so
+   * getting it wrong costs an answer — and the two are not the same size. A few
+   * extra searches are worth fractions of a cent; a plan written without
+   * understanding the code is a whole workflow, plus the operator's time
+   * catching it. Optimising the cheap failure at the risk of the expensive one
+   * is the wrong trade for a harness that otherwise refuses to guess.
+   *
+   * There is also no way for a stage to say it needs more. It is refused and
+   * carries on with less, quietly, which is exactly the shape of mistake the
+   * gates elsewhere exist to prevent.
+   *
+   * Kept rather than deleted because it is a real hypothesis and now a testable
+   * one: `sumo bench --configs gated,throttled` prices it. Turn it on when that
+   * comparison says it pays.
    */
   readonly searchThrottle: boolean;
 }
@@ -50,7 +63,10 @@ const ALL_ON: Features = {
   cleanRetries: true,
   stableToolList: true,
   candidateSampling: true,
-  escalationJudge: true, searchThrottle: true,
+  escalationJudge: true,
+  // Off, even here. See the flag's own note: it is the one optimisation whose
+  // failure mode is a worse answer rather than a larger bill.
+  searchThrottle: false,
 };
 
 export const ALL_OFF: Features = {
@@ -63,7 +79,8 @@ export const ALL_OFF: Features = {
   cleanRetries: false,
   stableToolList: false,
   candidateSampling: false,
-  escalationJudge: false, searchThrottle: false,
+  escalationJudge: false,
+  searchThrottle: false,
 };
 
 let current: Features = ALL_ON;
