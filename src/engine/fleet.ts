@@ -32,12 +32,21 @@ import {
   undominated,
 } from './catalog.ts';
 import { usable } from './availability.ts';
+import { ruledOut, score, workOf } from './aptitude.ts';
 import type { Capability, Engine } from './types.ts';
 import { type Effort, SumoError, type Tier } from '../types.ts';
 
 /** What a stage needs, as far as choosing a provider is concerned. */
 export interface StageNeed {
   readonly tier: Tier;
+  /**
+   * The stage's name, which says what kind of work it is.
+   *
+   * Used only to rule out models judged unfit for that work, and to break ties
+   * between models nothing else separates — see `aptitude.ts`. Optional, so a
+   * caller with no stage in hand still routes.
+   */
+  readonly stage?: string;
   /** The rung's effort, when it asked for one. Models that cannot take it are skipped. */
   readonly effort?: Effort;
   /** True when the stage must return an answer validating against a schema. */
@@ -187,9 +196,14 @@ export class Fleet {
       // `claude-sonnet-5` is on both at the same price — so price and id alone
       // leave a genuine tie, and without a deterministic final key the winner
       // would be whichever engine happened to be constructed first.
+      // Aptitude sits below the operator's own preference and above price. It
+      // orders only models that already survived dominance, so a judgement can
+      // break a tie but never overrule a fact.
+      const work = workOf(need.stage ?? '');
       const best = [...kept].sort(
         (a, b) =>
           Number(b.engine.name === preferred) - Number(a.engine.name === preferred) ||
+          score(b.model, work) - score(a.model, work) ||
           a.model.outputPerMtok - b.model.outputPerMtok ||
           a.model.id.localeCompare(b.model.id) ||
           a.engine.name.localeCompare(b.engine.name),
@@ -258,6 +272,10 @@ export class Fleet {
       // invalid one — so a rung asking for effort routes only at models offering
       // it. A rung with no effort at all is satisfied by anything.
       .filter((m) => need.effort === undefined || acceptsEffort(m, need.effort))
+      // A family judged unfit for this kind of work is removed rather than
+      // ranked last: `avoid` means the output would be unusable, which costs a
+      // whole stage and a retry rather than a little quality.
+      .filter((m) => !ruledOut(m, workOf(need.stage ?? '')))
       .map((model) => ({ engine, model }));
   }
 }

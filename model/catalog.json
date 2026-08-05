@@ -5,6 +5,7 @@
       {
         "id": "claude-haiku-4-5",
         "name": "Claude Haiku 4.5 (latest)",
+        "family": "claude-haiku",
         "outputPerMtok": 5,
         "inputPerMtok": 1,
         "contextWindow": 200000,
@@ -16,6 +17,7 @@
       {
         "id": "claude-haiku-4-5-20251001",
         "name": "Claude Haiku 4.5",
+        "family": "claude-haiku",
         "outputPerMtok": 5,
         "inputPerMtok": 1,
         "contextWindow": 200000,
@@ -27,6 +29,7 @@
       {
         "id": "claude-sonnet-5",
         "name": "Claude Sonnet 5",
+        "family": "claude-sonnet",
         "outputPerMtok": 10,
         "inputPerMtok": 2,
         "contextWindow": 1000000,
@@ -44,6 +47,7 @@
       {
         "id": "claude-sonnet-4-6",
         "name": "Claude Sonnet 4.6",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 1000000,
@@ -60,6 +64,7 @@
       {
         "id": "claude-sonnet-4-5",
         "name": "Claude Sonnet 4.5 (latest)",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 1000000,
@@ -71,6 +76,7 @@
       {
         "id": "claude-sonnet-4-5-20250929",
         "name": "Claude Sonnet 4.5",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 1000000,
@@ -82,6 +88,7 @@
       {
         "id": "claude-opus-4-6",
         "name": "Claude Opus 4.6",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 1000000,
@@ -98,6 +105,7 @@
       {
         "id": "claude-opus-4-8",
         "name": "Claude Opus 4.8",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 1000000,
@@ -115,6 +123,7 @@
       {
         "id": "claude-opus-4-5-20251101",
         "name": "Claude Opus 4.5",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -130,6 +139,7 @@
       {
         "id": "claude-opus-4-7",
         "name": "Claude Opus 4.7",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 1000000,
@@ -147,6 +157,7 @@
       {
         "id": "claude-opus-4-5",
         "name": "Claude Opus 4.5 (latest)",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -162,6 +173,7 @@
       {
         "id": "claude-opus-5",
         "name": "Claude Opus 5",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 1000000,
@@ -179,6 +191,7 @@
       {
         "id": "claude-fable-5",
         "name": "Claude Fable 5",
+        "family": "claude-fable",
         "outputPerMtok": 50,
         "inputPerMtok": 10,
         "contextWindow": 1000000,
@@ -196,6 +209,7 @@
       {
         "id": "claude-opus-4-1",
         "name": "Claude Opus 4.1 (latest)",
+        "family": "claude-opus",
         "outputPerMtok": 75,
         "inputPerMtok": 15,
         "contextWindow": 200000,
@@ -207,6 +221,7 @@
       {
         "id": "claude-opus-4-1-20250805",
         "name": "Claude Opus 4.1",
+        "family": "claude-opus",
         "outputPerMtok": 75,
         "inputPerMtok": 15,
         "contextWindow": 200000,
@@ -220,6 +235,7 @@
       {
         "id": "gpt-5.6-luna",
         "name": "GPT-5.6 Luna",
+        "family": "gpt-luna",
         "outputPerMtok": 1.2,
         "inputPerMtok": 0.2,
         "contextWindow": 1050000,
@@ -238,6 +254,7 @@
       {
         "id": "gpt-5.4-nano",
         "name": "GPT-5.4 nano",
+        "family": "gpt-nano",
         "outputPerMtok": 1.25,
         "inputPerMtok": 0.2,
         "contextWindow": 400000,
@@ -249,6 +266,7 @@
       {
         "id": "gpt-5-mini",
         "name": "GPT-5 Mini",
+        "family": "gpt-mini",
         "outputPerMtok": 2,
         "inputPerMtok": 0.25,
         "contextWindow": 264000,
@@ -264,6 +282,7 @@
       {
         "id": "kimi-k2.7-code",
         "name": "Kimi K2.7 Code",
+        "family": "kimi-k2",
         "outputPerMtok": 4,
         "inputPerMtok": 0.95,
         "contextWindow": 256000,
@@ -275,6 +294,7 @@
       {
         "id": "mai-code-1-flash-picker",
         "name": "MAI-Code-1-Flash",
+        "family": "mai",
         "outputPerMtok": 4.5,
         "inputPerMtok": 0.75,
         "contextWindow": 256000,
@@ -290,6 +310,7 @@
       {
         "id": "gpt-5.4-mini",
         "name": "GPT-5.4 mini",
+        "family": "gpt-mini",
         "outputPerMtok": 4.5,
         "inputPerMtok": 0.75,
         "contextWindow": 400000,
@@ -307,6 +328,7 @@
       {
         "id": "claude-haiku-4.5",
         "name": "Claude Haiku 4.5 (latest)",
+        "family": "claude-haiku",
         "outputPerMtok": 5,
         "inputPerMtok": 1,
         "contextWindow": 200000,
@@ -318,6 +340,7 @@
       {
         "id": "grok-4.5",
         "name": "Grok 4.5",
+        "family": "grok",
         "outputPerMtok": 6,
         "inputPerMtok": 2,
         "contextWindow": 500000,
@@ -333,6 +356,7 @@
       {
         "id": "gemini-3.6-flash",
         "name": "Gemini 3.6 Flash",
+        "family": "gemini-flash",
         "outputPerMtok": 7.5,
         "inputPerMtok": 1.5,
         "contextWindow": 1000000,
@@ -349,6 +373,7 @@
       {
         "id": "gpt-4.1",
         "name": "GPT-4.1",
+        "family": "gpt",
         "outputPerMtok": 8,
         "inputPerMtok": 2,
         "contextWindow": 128000,
@@ -360,6 +385,7 @@
       {
         "id": "gemini-3.5-flash",
         "name": "Gemini 3.5 Flash",
+        "family": "gemini-flash",
         "outputPerMtok": 9,
         "inputPerMtok": 1.5,
         "contextWindow": 200000,
@@ -376,6 +402,7 @@
       {
         "id": "claude-sonnet-5",
         "name": "Claude Sonnet 5",
+        "family": "claude-sonnet",
         "outputPerMtok": 10,
         "inputPerMtok": 2,
         "contextWindow": 1000000,
@@ -393,6 +420,7 @@
       {
         "id": "gemini-3.1-pro-preview",
         "name": "Gemini 3.1 Pro Preview",
+        "family": "gemini-pro",
         "outputPerMtok": 12,
         "inputPerMtok": 2,
         "contextWindow": 1000000,
@@ -408,6 +436,7 @@
       {
         "id": "gpt-5.6-terra",
         "name": "GPT-5.6 Terra",
+        "family": "gpt-terra",
         "outputPerMtok": 12,
         "inputPerMtok": 2,
         "contextWindow": 1050000,
@@ -426,6 +455,7 @@
       {
         "id": "gpt-5.2-codex",
         "name": "GPT-5.2 Codex",
+        "family": "gpt-codex",
         "outputPerMtok": 14,
         "inputPerMtok": 1.75,
         "contextWindow": 400000,
@@ -437,6 +467,7 @@
       {
         "id": "gpt-5.2",
         "name": "GPT-5.2",
+        "family": "gpt",
         "outputPerMtok": 14,
         "inputPerMtok": 1.75,
         "contextWindow": 400000,
@@ -448,6 +479,7 @@
       {
         "id": "gpt-5.3-codex",
         "name": "GPT-5.3 Codex",
+        "family": "gpt-codex",
         "outputPerMtok": 14,
         "inputPerMtok": 1.75,
         "contextWindow": 400000,
@@ -464,6 +496,7 @@
       {
         "id": "claude-sonnet-4.6",
         "name": "Claude Sonnet 4.6",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 200000,
@@ -480,6 +513,7 @@
       {
         "id": "claude-sonnet-4.5",
         "name": "Claude Sonnet 4.5 (latest)",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 200000,
@@ -491,6 +525,7 @@
       {
         "id": "gpt-5.4",
         "name": "GPT-5.4",
+        "family": "gpt",
         "outputPerMtok": 15,
         "inputPerMtok": 2.5,
         "contextWindow": 1050000,
@@ -508,6 +543,7 @@
       {
         "id": "claude-sonnet-4",
         "name": "Claude Sonnet 4 (latest)",
+        "family": "claude-sonnet",
         "outputPerMtok": 15,
         "inputPerMtok": 3,
         "contextWindow": 216000,
@@ -519,6 +555,7 @@
       {
         "id": "claude-opus-4.5",
         "name": "Claude Opus 4.5 (latest)",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -530,6 +567,7 @@
       {
         "id": "claude-opus-4.7",
         "name": "Claude Opus 4.7",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -547,6 +585,7 @@
       {
         "id": "claude-opus-4.8",
         "name": "Claude Opus 4.8",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -564,6 +603,7 @@
       {
         "id": "claude-opus-5",
         "name": "Claude Opus 5",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 1000000,
@@ -581,6 +621,7 @@
       {
         "id": "claude-opus-4.6",
         "name": "Claude Opus 4.6",
+        "family": "claude-opus",
         "outputPerMtok": 25,
         "inputPerMtok": 5,
         "contextWindow": 200000,
@@ -597,6 +638,7 @@
       {
         "id": "gpt-5.6-sol",
         "name": "GPT-5.6 Sol",
+        "family": "gpt-sol",
         "outputPerMtok": 30,
         "inputPerMtok": 5,
         "contextWindow": 1050000,
@@ -615,6 +657,7 @@
       {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
+        "family": "gpt",
         "outputPerMtok": 30,
         "inputPerMtok": 5,
         "contextWindow": 1050000,
@@ -632,6 +675,7 @@
       {
         "id": "claude-fable-5",
         "name": "Claude Fable 5",
+        "family": "claude-fable",
         "outputPerMtok": 50,
         "inputPerMtok": 10,
         "contextWindow": 1000000,

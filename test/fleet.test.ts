@@ -66,7 +66,7 @@ test('identical twins survive together rather than eliminating each other', () =
 
 test('a cheaper model with equal capability eliminates a pricier one', () => {
   const cheap: ModelSpec = {
-    id: 'cheap', name: 'c', outputPerMtok: 1, inputPerMtok: 1, contextWindow: 200_000,
+    id: 'cheap', name: 'c', family: 'test', outputPerMtok: 1, inputPerMtok: 1, contextWindow: 200_000,
     structuredOutput: true, toolCall: true, efforts: ['low'], releaseDate: '2026-01-01',
   };
   const dear: ModelSpec = { ...cheap, id: 'dear', outputPerMtok: 9 };
@@ -75,7 +75,7 @@ test('a cheaper model with equal capability eliminates a pricier one', () => {
 
 test('a pricier model survives when it is better at something', () => {
   const cheap: ModelSpec = {
-    id: 'cheap', name: 'c', outputPerMtok: 1, inputPerMtok: 1, contextWindow: 200_000,
+    id: 'cheap', name: 'c', family: 'test', outputPerMtok: 1, inputPerMtok: 1, contextWindow: 200_000,
     structuredOutput: false, toolCall: true, efforts: [], releaseDate: '2026-01-01',
   };
   const dear: ModelSpec = {
@@ -267,7 +267,7 @@ test('routing picks from whatever the account actually offers, not from the cata
   }
 });
 
-test('a full roster reduces each tier to its undominated best', async () => {
+test('a full roster always picks from the undominated set', async () => {
   const dir = scratch();
   try {
     clearUnusable();
@@ -275,8 +275,14 @@ test('a full roster reduces each tier to its undominated best', async () => {
 
     for (const tier of ['small', 'mid', 'large'] as const) {
       const routed = await fleet.for({ tier, needsSchema: false, capabilities: [] });
-      const best = undominated(candidates('github-copilot', tier))[0];
-      assert.equal(routed.model?.id, best?.id, `${tier} did not pick its undominated best`);
+      const survivors = undominated(candidates('github-copilot', tier)).map((m) => m.id);
+      // Which survivor wins depends on the stage's work — see aptitude.ts — but
+      // it is always one of them. A pick outside this set would mean something
+      // promoted a model that another strictly beats.
+      assert.ok(
+        survivors.includes(routed.model?.id ?? ''),
+        `${tier} picked ${routed.model?.id ?? 'nothing'}, not among ${survivors.join(', ')}`,
+      );
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -393,7 +399,15 @@ test('a preference only breaks ties; it cannot promote a beaten model', async ()
 
     assert.equal(a.engine.name, 'anthropic', 'the preference must settle the tie');
     assert.equal(c.engine.name, 'github-copilot', 'and settle it the other way too');
-    assert.equal(a.model?.id, c.model?.id, 'the same model, reached two ways');
+
+    // Both picks are still models nothing beats — the preference reordered
+    // which provider was consulted, it did not promote anything dominated.
+    const survivors = new Set([
+      ...undominated(candidates('anthropic', 'mid')).map((m) => m.id),
+      ...undominated(candidates('github-copilot', 'mid')).map((m) => m.id),
+    ]);
+    assert.ok(survivors.has(a.model?.id ?? ''));
+    assert.ok(survivors.has(c.model?.id ?? ''));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

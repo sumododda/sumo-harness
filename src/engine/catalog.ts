@@ -24,6 +24,8 @@ import type { Effort, Tier } from '../types.ts';
 export interface ModelSpec {
   readonly id: string;
   readonly name: string;
+  /** Upstream's model family, e.g. `claude-opus` — the key aptitude is judged on. */
+  readonly family: string;
   /** USD per million output tokens. The signal tiers are cut on. */
   readonly outputPerMtok: number;
   readonly inputPerMtok: number;

@@ -35,6 +35,7 @@ const PROVIDERS = ['anthropic', 'github-copilot'] as const;
 interface Entry {
   readonly id: string;
   readonly name: string;
+  readonly family: string;
   /** USD per million output tokens — the price signal routing sorts on. */
   readonly outputPerMtok: number;
   readonly inputPerMtok: number;
@@ -56,6 +57,7 @@ interface Entry {
 interface UpstreamModel {
   id?: string;
   name?: string;
+  family?: string;
   cost?: { input?: number; output?: number };
   limit?: { context?: number };
   structured_output?: boolean;
@@ -77,6 +79,7 @@ function toEntry(id: string, m: UpstreamModel): Entry | null {
   return {
     id,
     name: m.name ?? id,
+    family: m.family ?? id,
     outputPerMtok: output,
     inputPerMtok: m.cost?.input ?? 0,
     contextWindow: context,

@@ -104,6 +104,7 @@ export async function runStage(
   // against what its workflow assumed it would need.
   const { engine, model: routedModel, why: routedWhy } = await fleet.for({
     tier: spec.rung.tier,
+    stage: spec.name,
     needsSchema: spec.outputSchema !== undefined,
     capabilities: spec.capabilities,
     ...(spec.rung.effort ? { effort: spec.rung.effort } : {}),
