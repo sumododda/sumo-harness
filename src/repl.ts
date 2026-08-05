@@ -306,6 +306,10 @@ async function handleTurn(input: string, deps: TurnDeps, once?: Mode): Promise<v
         onEvent: ui.renderEvent,
         packChars: pack.length,
         ...(pack ? { indexed: true } : {}),
+        // Withholds the provider's own search, now that the results are already
+        // in the prompt. A search that failed leaves this unset, and the hosted
+        // one comes back as the fallback.
+        ...(found ? { searched: true } : {}),
       },
       ledger,
     );

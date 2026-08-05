@@ -36,12 +36,26 @@ const TOOLS: Record<Capability, readonly string[]> = {
   // Provided as an in-process MCP tool rather than a built-in, so it carries no
   // subprocess and the harness screens every invocation.
   git: [],
-  // Server-side tools: the search runs on the provider, so there is no local
-  // index, no key, and nothing to keep up to date. Granted per stage rather
-  // than globally, because a stage that can reach the network is a stage whose
-  // answer is no longer reproducible from the repo alone.
-  web: ['WebSearch', 'WebFetch'],
+  // Server-side tools. Granted per stage rather than globally, because a stage
+  // that can reach the network is a stage whose answer is no longer reproducible
+  // from the repo alone.
+  //
+  // Fetch only. The search half is the fallback below: `websearch.ts` runs the
+  // search itself so that it means the same thing on every provider and its
+  // results are in the prompt before the first turn.
+  web: ['WebFetch'],
 };
+
+/**
+ * The provider's own search, granted only when the harness could not run one.
+ *
+ * Kept out of {@link TOOLS} so that the common path — the harness searched, the
+ * results are already in the prompt — does not carry a tool the stage has no
+ * reason to call. A tool that is present gets used, and a second search would
+ * return a different five pages from the ones the citations were promised
+ * against.
+ */
+const HOSTED_SEARCH = 'WebSearch';
 
 /**
  * `read`/`search`/`edit`, granted to every stage once `stableToolList` is on,
@@ -63,12 +77,20 @@ const TOOLS: Record<Capability, readonly string[]> = {
  */
 const STABLE_CAPABILITIES: readonly Capability[] = ['read', 'search', 'edit'];
 
-/** The SDK tool names granted for a stage's capabilities. */
-export function toolsFor(capabilities: readonly Capability[]): string[] {
+/**
+ * The SDK tool names granted for a stage's capabilities.
+ *
+ * `searched` says the harness already put search results in the prompt, in which
+ * case the provider's own search is withheld and only fetch remains — see
+ * {@link HOSTED_SEARCH}.
+ */
+export function toolsFor(capabilities: readonly Capability[], searched = false): string[] {
   const granted = features.get().stableToolList
     ? [...new Set([...STABLE_CAPABILITIES, ...capabilities])]
     : capabilities;
-  return [...new Set(granted.flatMap((c) => TOOLS[c]))];
+  const names = granted.flatMap((c) => TOOLS[c]);
+  if (granted.includes('web') && !searched) names.push(HOSTED_SEARCH);
+  return [...new Set(names)];
 }
 
 /**
@@ -131,7 +153,7 @@ export class ClaudeEngine implements Engine {
     const model = req.model ?? this.modelFor(req.rung.tier);
     const effort = this.supportsEffort(req.rung.tier) ? req.rung.effort : undefined;
 
-    const tools = toolsFor(req.capabilities);
+    const tools = toolsFor(req.capabilities, req.searched ?? false);
 
     // Recorded by the gate hook, so a refusal is provable after the fact.
     const denials: string[] = [];

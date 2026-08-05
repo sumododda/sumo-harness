@@ -3,5 +3,6 @@
   "entry": ["scripts/*.ts", "test/**/*.test.ts"],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
   "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["ddgr"],
   "tags": ["-public"]
 }

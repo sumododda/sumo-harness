@@ -42,6 +42,12 @@ export interface StageSpec {
   readonly parts?: readonly Part[];
   readonly rung: Rung;
   readonly capabilities: readonly Capability[];
+  /**
+   * True when the harness already searched the web for this stage and put the
+   * results in the prompt. Withholds the provider's own search — see
+   * {@link StageRequest.searched}.
+   */
+  readonly searched?: boolean;
   readonly cwd: string;
   /** Absent means read-only: the gate refuses every write. */
   readonly allowWrites?: boolean;
@@ -218,6 +224,7 @@ export async function runStage(
     rung: spec.rung,
     ...(routedModel ? { model: routedModel.id } : {}),
     capabilities: spec.capabilities,
+    ...(spec.searched ? { searched: true } : {}),
     cwd: spec.cwd,
     maxTurns: spec.maxTurns ?? DEFAULT_TURNS,
     ...(spec.maxBudget !== undefined ? { maxBudget: spec.maxBudget } : {}),

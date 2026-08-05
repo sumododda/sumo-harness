@@ -74,12 +74,35 @@ const TOOLS: Record<Capability, readonly string[]> = {
   edit: ['edit', 'create'],
   // Screened through the custom tool below, never a built-in.
   git: [],
+  // Fetch only. The search half is the fallback below: `websearch.ts` runs the
+  // search itself so that it means the same thing on every provider.
   web: ['web_fetch'],
 };
 
-/** The built-in tools granted for a stage's capabilities. */
-function toolsFor(capabilities: readonly Capability[]): string[] {
-  return [...new Set(capabilities.flatMap((c) => TOOLS[c]))];
+/**
+ * The provider's own search, granted only when the harness could not run one.
+ *
+ * This provider is why the harness runs its own. `web_search` is a hosted server
+ * tool here, the same shape as Anthropic's `WebSearch` — Copilot's own research
+ * agent grants it — but it sits behind a `copilot_cli_native_web_search` runtime
+ * flag, so whether it exists is a property of the account rather than of the
+ * code. Granting `web_fetch` alone, as this did, left `/research` able to
+ * retrieve a URL it already had and unable to find one: the mode that exists to
+ * leave the machine could not, on this provider only, and said nothing about it.
+ */
+const HOSTED_SEARCH = 'web_search';
+
+/**
+ * The built-in tools granted for a stage's capabilities.
+ *
+ * `searched` says the harness already put search results in the prompt, in which
+ * case the provider's own search is withheld and only fetch remains — see
+ * {@link HOSTED_SEARCH}.
+ */
+export function toolsFor(capabilities: readonly Capability[], searched = false): string[] {
+  const names = capabilities.flatMap((c) => TOOLS[c]);
+  if (capabilities.includes('web') && !searched) names.push(HOSTED_SEARCH);
+  return [...new Set(names)];
 }
 
 /**
@@ -212,7 +235,7 @@ export class CopilotEngine implements Engine {
       // The real restriction, and the one that costs nothing to enforce: an
       // unlisted built-in is absent from the model's context entirely rather
       // than refused after the fact.
-      availableTools: [...toolsFor(req.capabilities), ...customNames(req)],
+      availableTools: [...toolsFor(req.capabilities, req.searched ?? false), ...customNames(req)],
       tools: [
         ...(req.capabilities.includes('git') ? [gitTool(req.cwd, denials)] : []),
         ...(req.outputSchema ? [submitTool(req.outputSchema, (v) => (submitted = v))] : []),

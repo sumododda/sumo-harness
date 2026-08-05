@@ -47,6 +47,21 @@ export interface StageRequest {
    */
   readonly model?: string;
   readonly capabilities: readonly Capability[];
+  /**
+   * True when the harness already ran the web search and put the results in the
+   * prompt, so the provider's own search tool is redundant for this stage.
+   *
+   * The harness's search is the one that runs: it is the same on every provider,
+   * its results are in the prompt before the first turn rather than after a
+   * round trip, and it hands over the URLs, which is what makes the citation
+   * requirement checkable rather than merely requested. A hosted search is the
+   * fallback for when it could not run at all — no `ddgr`, no network — and this
+   * flag is how an engine tells those two cases apart.
+   *
+   * Fetch is unaffected either way. Whichever search found the URLs, something
+   * still has to go and read the pages.
+   */
+  readonly searched?: boolean;
   /** Where the work happens. */
   readonly cwd: string;
   readonly maxTurns: number;

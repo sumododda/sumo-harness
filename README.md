@@ -413,8 +413,23 @@ repository, which is what makes an answer checkable — you can go and read the
 same code. `/research` cannot, so it is never routed to automatically, only
 pinned, and its prompt requires a URL on every claim: an uncited sentence from
 that stage is indistinguishable from one the model simply remembered, which is
-the failure it exists to avoid. No key and no service of its own — search runs
-on the provider, under whatever credentials sumo already found.
+the failure it exists to avoid.
+
+**The harness runs the search itself**, for the same reason it runs the tests:
+searching is deterministic, so a turn spent deciding to search and a second one
+reading what came back buy nothing. The results are in the prompt before the
+first turn, and the stage spends its turns fetching the pages that look worth
+reading. It also means `web` is worth the same on every provider — a promise the
+harness makes to a stage, which does not know whose account it landed on.
+
+That needs [`ddgr`](https://github.com/jarun/ddgr), which is optional and not
+installed by default. Without it the provider's own hosted search is granted
+instead, and the mode works as it always did. With it, the hosted search is
+withheld — the results are already there, and a second search would return a
+different set of pages from the ones the citations were promised against. Either
+way the fetch tool stays: something still has to read the pages.
+
+No key and no service of its own in either case.
 
 ---
 
@@ -566,6 +581,7 @@ src/
   cache.ts          the exact result cache
   features.ts       the optimisations, switchable so they can be measured
   retrieval.ts      whether to ask the index at all
+  websearch.ts      the web search the harness runs, not the model
   failures.ts       test output reduced to records
   schemas.ts        the shapes stages answer in, encoded for the next stage
   bench.ts          replays the fixtures with features on and off

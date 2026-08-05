@@ -124,6 +124,21 @@ path to ingredients did not change what the stage is actually asked.
 | C3 | ordinary work sits under the ceilings | ✓ a REPL turn at its bounded worst case ~1,600 tokens, `explore` on this repo ~2,100, against 4,000–12,000 |
 | C4 | a converted workflow stage still fixes a real bug | ✓ `bench --fixtures ts-app-memo` 1/1 at rung 0: evidence → root cause → fix → 3 retries → escalate to mid → tests pass |
 
+## Web search
+
+`web` has to be worth the same on every provider, so the harness runs the search
+itself and the provider's hosted one is the fallback. Both paths are checked
+live, because the failure they replace was silent: fetch-without-search returned
+an answer, just one built from nothing it had gone and found.
+
+| # | Claim | Result |
+|---|---|---|
+| W1 | the harness search reaches a stage that had none | ✓ Copilot: `5 web results` → 7 `web_fetch` calls → answer citing the OpenAPI spec directly, 4.00 cr |
+| W2 | it beats the hosted search it replaced | ✓ same question, same day: harness-run gave the actual REST and WebSocket endpoints, hosted gave the marketing page |
+| W3 | the hosted search takes over when `ddgr` is absent | ✓ `ddgr` off `PATH` → no results block → Claude's `websearch` fired, cited, $0.0373 |
+| W4 | a stage handed results does not search again for itself | ✓ unit — the hosted tool is withheld when `searched` is set |
+| W5 | `web_search` on Copilot | · never observed firing; granted, but behind a `copilot_cli_native_web_search` runtime flag, and the harness search made it moot |
+
 ## Rendering
 
 Everything a stage answers reaches two audiences with opposite needs. The
