@@ -1,7 +1,7 @@
 # sumo — feature test campaign
 
 Every feature exercised against a live model in a real repo, not a unit test.
-`✓` passed, `✗` bug found (logged in BUGS.md), `·` not yet run.
+`✓` passed, `✗` bug found and fixed, `·` not yet run.
 
 ## Gate grammar — `src/gate.ts`
 

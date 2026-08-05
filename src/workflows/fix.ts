@@ -302,7 +302,7 @@ async function revertTaskChanges(
 
 /**
  * A cheap, fail-safe read of whether a failed attempt is a near miss or a
- * sign the current approach/model can't do this — see BUGS.md.
+ * sign the current approach/model can't do this.
  *
  * Modelled on repl.ts's own route classifier: no tools, capped turns and
  * budget, cheapest tier. Every way this can go wrong — the stage throws, hits
@@ -362,7 +362,7 @@ async function fixUntilVerified(
   // against — without a repro test, "did this work" has no answer sharper
   // than the whole suite, and trying two independent guesses against that
   // would just pay twice to ask the one all-or-nothing question the ladder
-  // already asks once. See BUGS.md for the published result this follows.
+  // already asks once.
   const sampleCandidates = reproTestFile !== null && features.get().candidateSampling;
 
   for (;;) {

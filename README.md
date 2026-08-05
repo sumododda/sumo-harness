@@ -17,9 +17,8 @@ repository cannot answer, and `sumo bench` to check that any of it actually
 helps. TypeScript, Python, and Go are each covered by a fixture with the same
 seeded bug.
 
-The harness is developed by using it: `BUGS.md` records every defect found that
-way, with what it cost in a real session, and `TESTING.md` tracks which claims
-here have been exercised against a live model rather than only unit-tested.
+The harness is developed by using it: `TESTING.md` tracks which claims here
+have been exercised against a live model rather than only unit-tested.
 
 ## Why
 
