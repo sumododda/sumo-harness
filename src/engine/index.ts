@@ -7,13 +7,17 @@
  */
 
 import { ClaudeEngine } from './claude.ts';
+import { CopilotEngine } from './copilot.ts';
 import type { Engine } from './types.ts';
 import { SumoError } from '../types.ts';
 
-export type ProviderName = 'claude';
+export type ProviderName = 'claude' | 'github-copilot';
 
 const PROVIDERS: Record<ProviderName, () => Engine> = {
   claude: () => new ClaudeEngine(),
+  // Named as models.dev names it, because the catalogue is keyed on that and a
+  // second spelling here would be a lookup that silently returns nothing.
+  'github-copilot': () => new CopilotEngine(),
 };
 
 /** Resolves the provider from an explicit name, then SUMO_PROVIDER, then the default. */
