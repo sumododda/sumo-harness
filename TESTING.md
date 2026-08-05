@@ -86,7 +86,9 @@ every one of these passed its own tests while being wrong in a live session.
 | P7 | the secret screen fires on a Copilot write | **✗ no content was passed, so it never could** →✓ `test/copilot-gate.test.ts` |
 | P8 | a writable stage that changed nothing says so | **✗ a `/do` claimed an edit it never made, 8 credits** →✓ `no files changed` |
 | P9 | `/cost` says which model actually ran | **✗ only the tier** →✓ `on` column |
-| P10 | a schema stage routes at the default rung on a mixed fleet | **✗ `No usable model for a small stage` — the guarantee was preferred per fleet, so `evidence` asking small+low effort had every Copilot model removed before Anthropic's effort-less small model turned out to offer nothing** →✓ judged per stage |
+| P10 | a schema stage routes at the default rung on a mixed fleet | **✗ `No usable model for a small stage` — the guarantee was preferred per fleet, so `evidence` asking small+low effort had every Copilot model removed before Anthropic's effort-less small model turned out to offer nothing** →✓ judged per stage; `bench --fixtures ts-app-memo` now runs 1/1 at rung 0 where it previously failed to route at all |
+| P12 | one task bills both providers | ✓ `17.00 cr + $0.1046` on a single fixture — Copilot credits and Anthropic dollars kept apart in the ledger rather than summed |
+| P13 | `sumo bench` exits when its last task finishes | **✗ the Copilot headless process outlives the run and holds the pipe open** — results are complete and correct, the process just does not return |
 | P11 | path confinement holds under a symlinked working directory | **✗ every write refused: `/var/folders/…` vs the resolved `/private/var/folders/…`** →✓ both ends resolved |
 
 ## Gates, continued
@@ -112,6 +114,7 @@ path to ingredients did not change what the stage is actually asked.
 | C1 | a converted single-stage turn still answers from the pack | ✓ `/chat` routed at `gpt-5.6-luna`, answered from `src/context/budget.ts` without opening it |
 | C2 | an assembled prompt is byte-identical to the concatenation it replaced | ✓ checked against the previous `prompts.ts` across every combination of stage, pack, file listing and skeleton flag |
 | C3 | ordinary work sits under the ceilings | ✓ a REPL turn at its bounded worst case ~1,600 tokens, `explore` on this repo ~2,100, against 4,000–12,000 |
+| C4 | a converted workflow stage still fixes a real bug | ✓ `bench --fixtures ts-app-memo` 1/1 at rung 0: evidence → root cause → fix → 3 retries → escalate to mid → tests pass |
 
 ## Rendering
 
