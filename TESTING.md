@@ -86,6 +86,8 @@ every one of these passed its own tests while being wrong in a live session.
 | P7 | the secret screen fires on a Copilot write | **✗ no content was passed, so it never could** →✓ `test/copilot-gate.test.ts` |
 | P8 | a writable stage that changed nothing says so | **✗ a `/do` claimed an edit it never made, 8 credits** →✓ `no files changed` |
 | P9 | `/cost` says which model actually ran | **✗ only the tier** →✓ `on` column |
+| P10 | a schema stage routes at the default rung on a mixed fleet | **✗ `No usable model for a small stage` — the guarantee was preferred per fleet, so `evidence` asking small+low effort had every Copilot model removed before Anthropic's effort-less small model turned out to offer nothing** →✓ judged per stage |
+| P11 | path confinement holds under a symlinked working directory | **✗ every write refused: `/var/folders/…` vs the resolved `/private/var/folders/…`** →✓ both ends resolved |
 
 ## Gates, continued
 
@@ -98,6 +100,18 @@ every one of these passed its own tests while being wrong in a live session.
 | G14 | a question at the repro gate | answered, command intact | **✗ silently skipped** →✓ |
 | M10 | `/feature <task>` then a plain message | the second is routed freshly | **✗ pinned for the session** →✓ `question · by rules` |
 | M11 | bare `/feature` | pins until `/auto` | ✓ |
+
+## Context budget
+
+The budget assembles a prompt after routing, so what a stage is given depends on
+which model it landed on. The claim worth checking live is that converting a call
+path to ingredients did not change what the stage is actually asked.
+
+| # | Claim | Result |
+|---|---|---|
+| C1 | a converted single-stage turn still answers from the pack | ✓ `/chat` routed at `gpt-5.6-luna`, answered from `src/context/budget.ts` without opening it |
+| C2 | an assembled prompt is byte-identical to the concatenation it replaced | ✓ checked against the previous `prompts.ts` across every combination of stage, pack, file listing and skeleton flag |
+| C3 | ordinary work sits under the ceilings | ✓ a REPL turn at its bounded worst case ~1,600 tokens, `explore` on this repo ~2,100, against 4,000–12,000 |
 
 ## Rendering
 
