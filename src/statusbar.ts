@@ -33,13 +33,20 @@ interface State {
   activity: string;
   /** When the current activity started, for the clock. */
   since: number;
-  /** Session spend so far. */
-  costUsd: number;
+  /**
+   * Session spend so far, already rendered.
+   *
+   * A string rather than a number because the bar is a display component and
+   * spend is no longer one number: a session that routes across providers has
+   * a total per cost unit, and deciding how that reads belongs with the ledger
+   * that knows the units, not with the thing drawing a line of text.
+   */
+  cost: string;
   /** Short repo label, shown when idle. */
   where: string;
 }
 
-const state: State = { activity: '', since: Date.now(), costUsd: 0, where: '' };
+const state: State = { activity: '', since: Date.now(), cost: '$0.0000', where: '' };
 
 /**
  * The spinner. Braille dots occupy one column in any monospace font, so the
@@ -340,9 +347,9 @@ export function idle(): void {
   else draw();
 }
 
-/** Updates the running total. */
-export function cost(usd: number): void {
-  state.costUsd = usd;
+/** Updates the running total, already rendered by the ledger. */
+export function cost(rendered: string): void {
+  state.cost = rendered;
   if (paintedLines > 0) draw();
 }
 
@@ -515,7 +522,7 @@ export function render(
   spin: string = FRAMES[frame] ?? FRAMES[0],
 ): string {
   const width = usable(columnCount);
-  const money = `$${now.costUsd.toFixed(4)}`;
+  const money = now.cost;
 
   if (now.activity === '') return clip(`sumo · ${now.where} · ${money} this session`, width);
 

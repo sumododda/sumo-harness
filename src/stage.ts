@@ -7,7 +7,8 @@
 
 import pc from 'picocolors';
 import * as cache from './cache.ts';
-import type { Capability, Engine } from './engine/index.ts';
+import type { Capability } from './engine/index.ts';
+import { Fleet } from './engine/fleet.ts';
 import type { EventSink } from './engine/types.ts';
 import type { Progress } from './progress.ts';
 import type { Steering } from './steer.ts';
@@ -17,6 +18,7 @@ import { hash, repoFingerprint } from './hash.ts';
 import type { Ledger } from './ledger.ts';
 import { estimateTokens, estimateTokensFromChars } from './profile.ts';
 import { systemPrompt } from './prompts.ts';
+import { money } from './ui.ts';
 import { describeRung, type Rung, type StageResult } from './types.ts';
 
 export interface StageSpec {
@@ -30,7 +32,7 @@ export interface StageSpec {
   /** Files that must not change even in a writable stage. */
   readonly lockedPaths?: readonly string[];
   readonly maxTurns?: number;
-  readonly maxBudgetUsd?: number;
+  readonly maxBudget?: number;
   readonly outputSchema?: Record<string, unknown>;
   /** Receives live activity. Omit to run quietly. */
   readonly onEvent?: EventSink;
@@ -85,24 +87,41 @@ const DEFAULT_TURNS = 20;
  *
  * What bounds a stage is {@link DEFAULT_TURNS}: a limit on how much it may do,
  * which is something it can finish inside. A caller that genuinely wants a
- * ceiling still passes `maxBudgetUsd` — `sumo do --budget` does, and so does
+ * ceiling still passes `maxBudget` — `sumo do --budget` does, and so does
  * the routing classifier, where two cents is the whole point of the call.
  */
 
 export async function runStage(
-  engine: Engine,
+  fleet: Fleet,
   spec: StageSpec,
   ledger: Ledger,
 ): Promise<StageResult> {
   const allowWrites = spec.allowWrites ?? false;
 
+  // Resolved here for the same reason steering and progress are: a stage begins
+  // in exactly one place, so this is the only place that can guarantee every
+  // stage was routed, and routed against what it actually needs rather than
+  // against what its workflow assumed it would need.
+  const { engine, model: routedModel, why: routedWhy } = await fleet.for({
+    tier: spec.rung.tier,
+    needsSchema: spec.outputSchema !== undefined,
+    capabilities: spec.capabilities,
+    ...(spec.rung.effort ? { effort: spec.rung.effort } : {}),
+  });
+
+  // Named only when there was a choice to make. A one-provider fleet has no
+  // decision worth reporting, and saying "only provider" on every line would
+  // bury the case where routing actually did something.
+  const route = fleet.providers.length > 1 ? ` · ${engine.name}: ${routedWhy}` : '';
+
   if (spec.progress) {
     spec.progress.begin(spec.name);
+    if (route) process.stderr.write(pc.dim(` ${route.slice(3)}\n`));
   } else if (!spec.onEvent) {
     // Quiet runs still say which stage is working, just without the route.
     process.stderr.write(
       pc.dim(
-        `→ ${spec.name} (${describeRung(spec.rung)}${allowWrites ? '' : ', read-only'})\n`,
+        `→ ${spec.name} (${describeRung(spec.rung)}${allowWrites ? '' : ', read-only'})${route}\n`,
       ),
     );
   }
@@ -119,15 +138,21 @@ export async function runStage(
     pack: estimateTokensFromChars(spec.packChars ?? 0),
   };
 
-  const key = await cacheKeyFor(engine, spec, prompt, system);
+  const key = await cacheKeyFor(
+    engine,
+    spec,
+    prompt,
+    system,
+    routedModel?.id ?? engine.modelFor(spec.rung.tier),
+  );
   if (key) {
     const hit = cache.read<StageResult>(spec.cwd, key);
     if (hit) {
       const replayed: StageResult = {
         ...hit,
-        costUsd: 0,
+        cost: 0,
         cached: true,
-        savedUsd: hit.costUsd,
+        saved: hit.cost,
         composition,
         ...(spec.attempt !== undefined ? { attempt: spec.attempt } : {}),
       };
@@ -137,7 +162,7 @@ export async function runStage(
         spec.onEvent?.({ kind: 'text', text: replayed.output });
       }
       ledger.add(replayed);
-      spec.progress?.done('', 0, true);
+      spec.progress?.done('', 0, replayed.costUnit, true);
       return replayed;
     }
   }
@@ -149,10 +174,11 @@ export async function runStage(
     prompt,
     systemPrompt: system,
     rung: spec.rung,
+    ...(routedModel ? { model: routedModel.id } : {}),
     capabilities: spec.capabilities,
     cwd: spec.cwd,
     maxTurns: spec.maxTurns ?? DEFAULT_TURNS,
-    ...(spec.maxBudgetUsd !== undefined ? { maxBudgetUsd: spec.maxBudgetUsd } : {}),
+    ...(spec.maxBudget !== undefined ? { maxBudget: spec.maxBudget } : {}),
     gate: buildGate({
       root: spec.cwd,
       allowWrites,
@@ -177,7 +203,7 @@ export async function runStage(
   };
 
   ledger.add(result);
-  spec.progress?.done(summarize(result), result.costUsd);
+  spec.progress?.done(summarize(result), result.cost, result.costUnit);
 
   // Only a stage that ran to completion is worth replaying. A truncated one
   // would be reused forever at the length its budget happened to allow.
@@ -187,7 +213,8 @@ export async function runStage(
   }
 
   if (result.stopped === 'budget') {
-    process.stderr.write(pc.yellow(`  stage hit its $${String(spec.maxBudgetUsd)} budget\n`));
+    const ceiling = spec.maxBudget === undefined ? '' : `${money(spec.maxBudget, engine.costUnit)} `;
+    process.stderr.write(pc.yellow(`  stage hit its ${ceiling}budget\n`));
   } else if (result.stopped === 'turns') {
     process.stderr.write(pc.yellow(`  stage hit its turn limit\n`));
   }
@@ -233,13 +260,22 @@ function summarize(result: StageResult): string {
  * reuse: without knowing what the code is, no answer about it can be trusted.
  */
 async function cacheKeyFor(
-  engine: Engine,
+  engine: import('./engine/types.ts').Engine,
   spec: StageSpec,
   /** The prompt as actually sent, steers included. */
   prompt: string,
   /** The system prompt as actually sent — passed rather than rebuilt, so the
    * key can never describe a different prompt from the one the stage ran. */
   system: string,
+  /**
+   * The model routing chose, when it chose one.
+   *
+   * Passed rather than re-derived from the engine, because routing can land on
+   * a different model from the engine's default — an organisation disabling one
+   * is enough — and a key naming the default would let an answer from one model
+   * be replayed as though it came from another.
+   */
+  model: string,
 ): Promise<string | null> {
   if (!cache.isEnabled()) return null;
   if (spec.allowWrites === true) return null;
@@ -250,7 +286,7 @@ async function cacheKeyFor(
 
   return hash({
     engine: engine.name,
-    model: engine.modelFor(spec.rung.tier),
+    model,
     effort: engine.supportsEffort(spec.rung.tier) ? (spec.rung.effort ?? null) : null,
     system,
     capabilities: [...spec.capabilities].sort(),
@@ -262,7 +298,7 @@ async function cacheKeyFor(
     // question from the same prompt under a smaller one. `null` is its own
     // value here: uncapped and capped-at-some-number are not the same question.
     maxTurns: spec.maxTurns ?? DEFAULT_TURNS,
-    maxBudgetUsd: spec.maxBudgetUsd ?? null,
+    maxBudget: spec.maxBudget ?? null,
     fingerprint,
   });
 }

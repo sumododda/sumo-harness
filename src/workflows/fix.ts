@@ -14,7 +14,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import pc from 'picocolors';
-import type { Engine } from '../engine/index.ts';
+import type { Fleet } from '../engine/fleet.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
 import * as features from '../features.ts';
@@ -41,7 +41,7 @@ import { rungAt, type Rung, type StageResult } from '../types.ts';
 import * as ui from '../ui.ts';
 
 export interface FixContext {
-  readonly engine: Engine;
+  readonly fleet: Fleet;
   readonly ledger: Ledger;
   readonly state: TaskState;
   readonly cwd: string;
@@ -77,7 +77,7 @@ export async function runFix(
    */
   resumeFrom?: { readonly rootCause: ui.Shown<RootCause> },
 ): Promise<FixOutcome> {
-  const { engine, ledger, state, cwd } = ctx;
+  const { fleet, ledger, state, cwd } = ctx;
 
   // What this task's own stages are allowed to revert on a failed retry is
   // "everything that wasn't already dirty" — recorded before anything runs,
@@ -134,7 +134,7 @@ export async function runFix(
   // 1. Evidence — read-only. Cannot edit even if it decides it knows the answer.
   // Skipped outright when a matching attempt already gathered it.
   const evidence = reusable !== null ? null : await runStage(
-    engine,
+    fleet,
     {
       name: 'evidence',
       prompt: EVIDENCE_STAGE(bug, packContext),
@@ -184,7 +184,7 @@ export async function runFix(
 
   // 3. Root cause — where thinking actually pays, so effort steps up.
   const rootCause = await runStage(
-    engine,
+    fleet,
     {
       name: 'root-cause',
       prompt: ROOT_CAUSE_STAGE(bug, evidenceText, repro ?? ''),
@@ -250,7 +250,7 @@ async function runFixAttempt(
   ctx: FixContext,
 ): Promise<StageResult> {
   const fix = await runStage(
-    ctx.engine,
+    ctx.fleet,
     {
       name: 'fix',
       prompt: FIX_STAGE(rootCause, extra),
@@ -320,7 +320,7 @@ async function judgeEscalation(
   const table = failures.toPrompt(failures.parse(output), previous);
   try {
     const result = await runStage(
-      ctx.engine,
+      ctx.fleet,
       {
         name: 'judge',
         prompt: ESCALATION_JUDGE_STAGE(rootCause, table === '' ? output : table),
@@ -328,7 +328,7 @@ async function judgeEscalation(
         capabilities: [],
         cwd: ctx.cwd,
         maxTurns: 3,
-        maxBudgetUsd: 0.02,
+        maxBudget: 0.02,
         outputSchema: jsonSchema(EscalationVerdict),
       },
       ctx.ledger,
@@ -520,7 +520,7 @@ async function gateRootCause(
     // proposal intact and the revision budget untouched.
     if (decision.kind === 'discuss') {
       await runStage(
-        ctx.engine,
+        ctx.fleet,
         {
           name: 'discuss',
           prompt: DISCUSS_STAGE(cause.prompt, decision.question),
@@ -549,7 +549,7 @@ async function gateRootCause(
     // the model defending its earlier answer.
     notes.push(decision.feedback);
     const revised = await runStage(
-      ctx.engine,
+      ctx.fleet,
       {
         name: 'root-cause',
         prompt:

@@ -10,7 +10,7 @@
  */
 
 import pc from 'picocolors';
-import type { Engine } from '../engine/index.ts';
+import type { Fleet } from '../engine/fleet.ts';
 import {
   askApproval,
   type GateDecision,
@@ -32,7 +32,7 @@ import type { Rung } from '../types.ts';
 import * as ui from '../ui.ts';
 
 export interface PlanContext {
-  readonly engine: Engine;
+  readonly fleet: Fleet;
   readonly ledger: Ledger;
   readonly state: TaskState;
   readonly cwd: string;
@@ -73,7 +73,7 @@ export async function runPlan(
   /** The index's answer for this task. Stable, unlike the conversation. */
   packContext = '',
 ): Promise<PlanOutcome> {
-  const { engine, ledger, state, cwd } = ctx;
+  const { fleet, ledger, state, cwd } = ctx;
 
   // A survey of an unchanged repository for a task already surveyed is the same
   // survey. The stage cache normally covers this, but it is keyed on the exact
@@ -89,7 +89,7 @@ export async function runPlan(
 
   // 1. Survey what exists. Retrieval, so effort stays low whatever the rung.
   const explore = reusable !== null ? null : await runStage(
-    engine,
+    fleet,
     {
       name: 'explore',
       prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
@@ -116,7 +116,7 @@ export async function runPlan(
 
   // 2. Plan against that survey. This is where thinking earns its cost.
   const planned = await runStage(
-    engine,
+    fleet,
     {
       name: 'plan',
       prompt: FEATURE_PLAN_STAGE(task, exploreText),
@@ -195,7 +195,7 @@ async function settle(
     if (decision.kind === 'discuss') {
       // A question leaves the plan exactly as it was.
       await runStage(
-        ctx.engine,
+        ctx.fleet,
         {
           name: 'discuss',
           prompt: DISCUSS_STAGE(plan.prompt, decision.question),
@@ -221,7 +221,7 @@ async function settle(
 
       // Re-plan against the same findings, so exploration is not paid for twice.
       const revised = await runStage(
-        ctx.engine,
+        ctx.fleet,
         {
           name: 'plan',
           prompt: FEATURE_PLAN_STAGE(task, findings, notes),

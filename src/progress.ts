@@ -15,6 +15,8 @@
 
 import pc from 'picocolors';
 import * as statusbar from './statusbar.ts';
+import type { CostUnit } from './types.ts';
+import { money } from './ui.ts';
 
 export interface Step {
   /** Matches the stage name used in the ledger. */
@@ -105,12 +107,12 @@ export class Progress {
    * `summary` is the stage's own words for what it found — "4 files, 2 reusable
    * helpers" — which is the part that tells you whether to keep going.
    */
-  done(summary: string, costUsd: number, cached = false): void {
+  done(summary: string, cost: number, unit: CostUnit, cached = false): void {
     const finished = this.current;
     if (!finished) return;
 
     const seconds = Math.max(0, Math.round((Date.now() - this.startedAt) / 1000));
-    const price = cached ? 'reused' : `$${costUsd.toFixed(4)}`;
+    const price = cached ? 'reused' : money(cost, unit);
     process.stdout.write(
       `  ${pc.green('✓')} ${summary ? `${summary}  ` : ''}${pc.dim(`${seconds}s · ${price}`)}\n`,
     );

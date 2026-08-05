@@ -70,6 +70,10 @@ export function toolsFor(capabilities: readonly Capability[]): string[] {
 
 export class ClaudeEngine implements Engine {
   readonly name = 'claude';
+  /** Anthropic prices a request in money, so this provider's numbers are dollars. */
+  readonly costUnit = 'usd' as const;
+  /** The SDK constrains a final answer with `outputFormat: json_schema`. */
+  readonly supportsOutputSchema = true;
 
   modelFor(tier: Tier): string {
     return MODELS[tier];
@@ -98,7 +102,9 @@ export class ClaudeEngine implements Engine {
   }
 
   async runStage(req: StageRequest): Promise<StageResult> {
-    const model = this.modelFor(req.rung.tier);
+    // Routing knows things this engine does not — what the account can reach,
+    // what the stage needs — so its choice wins where it made one.
+    const model = req.model ?? this.modelFor(req.rung.tier);
     const effort = this.supportsEffort(req.rung.tier) ? req.rung.effort : undefined;
 
     const tools = toolsFor(req.capabilities);
@@ -132,7 +138,9 @@ export class ClaudeEngine implements Engine {
       allowedTools: approved,
       permissionMode: 'dontAsk',
       maxTurns: req.maxTurns,
-      ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}),
+      // The harness's ceiling is in this engine's unit, which for Anthropic is
+      // dollars — so it maps straight onto the SDK's own dollar-denominated cap.
+      ...(req.maxBudget !== undefined ? { maxBudgetUsd: req.maxBudget } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(req.outputSchema
         ? { outputFormat: { type: 'json_schema' as const, schema: req.outputSchema } }
@@ -185,13 +193,15 @@ export class ClaudeEngine implements Engine {
               message.subtype === 'success' && typeof message.result === 'string'
                 ? message.result
                 : text,
-            costUsd: message.total_cost_usd ?? 0,
+            cost: message.total_cost_usd ?? 0,
+            costUnit: this.costUnit,
             turns: message.num_turns ?? 0,
             inputTokens: usage.input_tokens ?? 0,
             outputTokens: usage.output_tokens ?? 0,
             cacheReadTokens: usage.cache_read_input_tokens ?? 0,
             rung: req.rung,
             model,
+            provider: this.name,
             sessionId: message.session_id,
             ...(stopped ? { stopped } : {}),
             denials,

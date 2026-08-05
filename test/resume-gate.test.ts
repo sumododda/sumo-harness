@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Interface } from 'node:readline/promises';
 import type { Engine, StageRequest } from '../src/engine/index.ts';
+import { Fleet } from '../src/engine/fleet.ts';
 import { LineReader } from '../src/input.ts';
 import { Ledger } from '../src/ledger.ts';
 import { run } from '../src/runner.ts';
@@ -32,6 +33,8 @@ function stubEngine(seen: string[], outputs: Record<string, string> = {}): Engin
   let writeTestAttempt = 0;
   return {
     name: 'stub',
+    costUnit: 'usd' as const,
+    supportsOutputSchema: true,
     modelFor: (tier) => `stub-${tier}`,
     supportsEffort: () => true,
     async runStage(req: StageRequest): Promise<StageResult> {
@@ -45,13 +48,14 @@ function stubEngine(seen: string[], outputs: Record<string, string> = {}): Engin
       return {
         stage: req.stage,
         output: outputs[req.stage] ?? 'done',
-        costUsd: 0,
+        cost: 0,
+        costUnit: 'usd',
         turns: 1,
         inputTokens: 0,
         outputTokens: 0,
         cacheReadTokens: 0,
         rung: req.rung,
-        model: `stub-${req.rung.tier}`,
+        model: `stub-${req.rung.tier}`, provider: 'stub',
         denials: [],
       };
     },
@@ -132,7 +136,7 @@ test('fix: rejecting the root cause at the gate saves both artifact forms', asyn
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'fix-reject');
     const ctx = {
-      engine: stubEngine(seen, { 'root-cause': 'Cause: listNotes swallows ENOENT.' }),
+      fleet: Fleet.of(stubEngine(seen, { 'root-cause': 'Cause: listNotes swallows ENOENT.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -159,7 +163,7 @@ test('fix: resuming re-enters the gate without evidence or root-cause, and shows
     const state = new TaskState(findRepo(dir), 'fix-resume');
     const seen1: string[] = [];
     const first = await runFix('the cart total is wrong', { tier: 'small' }, {
-      engine: stubEngine(seen1, { 'root-cause': 'Cause: listNotes swallows ENOENT.' }),
+      fleet: Fleet.of(stubEngine(seen1, { 'root-cause': 'Cause: listNotes swallows ENOENT.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -184,7 +188,7 @@ test('fix: resuming re-enters the gate without evidence or root-cause, and shows
         {
           // A different engine: if evidence or root-cause ran again, this
           // output — not the saved one — is what would reach the gate.
-          engine: stubEngine(seen2, { 'root-cause': 'DIFFERENT — must not be reached' }),
+          fleet: Fleet.of(stubEngine(seen2, { 'root-cause': 'DIFFERENT — must not be reached' })),
           ledger: new Ledger(),
           state,
           cwd: dir,
@@ -217,6 +221,8 @@ test('fix: hitting the revision limit at the gate is a gate stop too', async () 
     const state = new TaskState(findRepo(dir), 'fix-revlimit');
     const engine: Engine = {
       name: 'stub',
+      costUnit: 'usd' as const,
+      supportsOutputSchema: true,
       modelFor: (tier) => `stub-${tier}`,
       supportsEffort: () => true,
       async runStage(req) {
@@ -225,20 +231,21 @@ test('fix: hitting the revision limit at the gate is a gate stop too', async () 
         return {
           stage: req.stage,
           output: req.stage === 'root-cause' ? `Cause, attempt ${revision}` : 'done',
-          costUsd: 0,
+          cost: 0,
+          costUnit: 'usd',
           turns: 1,
           inputTokens: 0,
           outputTokens: 0,
           cacheReadTokens: 0,
           rung: req.rung,
-          model: `stub-${req.rung.tier}`,
+          model: `stub-${req.rung.tier}`, provider: 'stub',
           denials: [],
         };
       },
     };
 
     const outcome = await runFix('the cart total is wrong', { tier: 'small' }, {
-      engine,
+      fleet: Fleet.of(engine),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -266,7 +273,7 @@ test('fix: root-cause producing nothing is not a gate stop', async () => {
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'fix-empty');
     const outcome = await runFix('the cart total is wrong', { tier: 'small' }, {
-      engine: stubEngine(seen, { 'root-cause': '' }),
+      fleet: Fleet.of(stubEngine(seen, { 'root-cause': '' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -290,7 +297,7 @@ test('fix: giving up mid-ladder after approval is not a gate stop', async () => 
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'fix-giveup');
     const outcome = await runFix('the cart total is wrong', { tier: 'mid', effort: 'low' }, {
-      engine: stubEngine(seen, { 'root-cause': 'Cause: x' }),
+      fleet: Fleet.of(stubEngine(seen, { 'root-cause': 'Cause: x' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -315,7 +322,7 @@ test('feature: rejecting the plan at the gate saves both artifact forms plus the
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'feature-reject');
     const outcome = await runFeature('add a search command', { tier: 'small' }, {
-      engine: stubEngine(seen, { plan: 'Approach: add the thing.' }),
+      fleet: Fleet.of(stubEngine(seen, { plan: 'Approach: add the thing.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -344,7 +351,7 @@ test('feature: resuming re-enters the gate without explore or plan, and lands ba
     const state = new TaskState(findRepo(dir), 'feature-resume');
     const seen1: string[] = [];
     const first = await runFeature('add a search command', { tier: 'small' }, {
-      engine: stubEngine(seen1, { plan: 'Approach: add the thing.' }),
+      fleet: Fleet.of(stubEngine(seen1, { plan: 'Approach: add the thing.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -375,7 +382,7 @@ test('feature: resuming re-enters the gate without explore or plan, and lands ba
         'add a search command',
         { tier: 'small' },
         {
-          engine: stubEngine(seen2, { plan: 'DIFFERENT — must not be reached' }),
+          fleet: Fleet.of(stubEngine(seen2, { plan: 'DIFFERENT — must not be reached' })),
           ledger: new Ledger(),
           state,
           cwd: dir,
@@ -414,7 +421,7 @@ test('feature: hitting the revision limit at the gate is a gate stop too', async
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'feature-revlimit');
     const outcome = await runFeature('add a search command', { tier: 'small' }, {
-      engine: stubEngine(seen, { plan: 'Approach: something.' }),
+      fleet: Fleet.of(stubEngine(seen, { plan: 'Approach: something.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -445,7 +452,7 @@ test('feature: a plan that produces nothing is not a gate stop', async () => {
     const seen: string[] = [];
     const state = new TaskState(findRepo(dir), 'feature-empty');
     const outcome = await runFeature('add a search command', { tier: 'small' }, {
-      engine: stubEngine(seen, { plan: '' }),
+      fleet: Fleet.of(stubEngine(seen, { plan: '' })),
       ledger: new Ledger(),
       state,
       cwd: dir,
@@ -472,7 +479,7 @@ test('feature: giving up mid-ladder after approval is not a gate stop', async ()
     // Run 1: pre-existing check, green. Run 2: prove-failing, red as required.
     // Every run after that stays red, so the ladder climbs and gives up.
     const outcome = await runFeature('add a search command', { tier: 'small' }, {
-      engine: stubEngine(seen, { plan: 'Approach: something.' }),
+      fleet: Fleet.of(stubEngine(seen, { plan: 'Approach: something.' })),
       ledger: new Ledger(),
       state,
       cwd: dir,

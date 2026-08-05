@@ -10,7 +10,9 @@ function stage(overrides: Partial<StageResult> = {}): StageResult {
   return {
     stage: 'evidence',
     output: 'ok',
-    costUsd: 0.0041,
+    cost: 0.0041,
+    costUnit: 'usd',
+    provider: 'stub',
     turns: 3,
     inputTokens: 4120,
     outputTokens: 380,
@@ -24,10 +26,10 @@ function stage(overrides: Partial<StageResult> = {}): StageResult {
 
 test('totals every stage', () => {
   const ledger = new Ledger();
-  ledger.add(stage({ costUsd: 0.01 }));
-  ledger.add(stage({ stage: 'fix', costUsd: 0.02 }));
+  ledger.add(stage({ cost: 0.01 }));
+  ledger.add(stage({ stage: 'fix', cost: 0.02 }));
 
-  assert.equal(Number(ledger.totalUsd.toFixed(4)), 0.03);
+  assert.equal(Number(ledger.total[0]!.amount.toFixed(4)), 0.03);
   assert.equal(ledger.entries.length, 2);
 });
 
@@ -74,7 +76,7 @@ test('renders a table with a total, and survives being empty', () => {
   assert.match(new Ledger().render(), /No stages ran/);
 
   const ledger = new Ledger();
-  ledger.add(stage({ costUsd: 0.0123 }));
+  ledger.add(stage({ cost: 0.0123 }));
   const rendered = ledger.render();
 
   assert.match(rendered, /stage/);
@@ -85,7 +87,7 @@ test('renders a table with a total, and survives being empty', () => {
 
 test('a replayed stage reads as reused, not as free', () => {
   const ledger = new Ledger();
-  ledger.add(stage({ costUsd: 0, cached: true, savedUsd: 0.0233 }));
+  ledger.add(stage({ cost: 0, cached: true, saved: 0.0233 }));
   const rendered = ledger.render();
 
   // In the row itself, "$0.0000" would suggest a stage that ran and happened to
@@ -118,42 +120,42 @@ test('the total line omits cache reads when there were none', () => {
 
 test('summarize counts retries, escalations, and what was saved', () => {
   const ledger = new Ledger();
-  ledger.add(stage({ costUsd: 0.01, attempt: 0 }));
-  ledger.add(stage({ costUsd: 0.02, attempt: 1 }));
-  ledger.add(stage({ costUsd: 0, cached: true, savedUsd: 0.03 }));
+  ledger.add(stage({ cost: 0.01, attempt: 0 }));
+  ledger.add(stage({ cost: 0.02, attempt: 1 }));
+  ledger.add(stage({ cost: 0, cached: true, saved: 0.03 }));
   ledger.noteEscalation();
 
   const summary = ledger.summarize();
   assert.equal(summary.stages, 3);
   assert.equal(summary.retries, 1, 'only attempt > 0 is a retry');
   assert.equal(summary.escalations, 1);
-  assert.equal(Number(summary.totalUsd.toFixed(4)), 0.03);
-  assert.equal(summary.savedUsd, 0.03);
+  assert.equal(Number(summary.total[0]!.amount.toFixed(4)), 0.03);
+  assert.equal(summary.saved[0]!.amount, 0.03);
 });
 
 test('a mark scopes the summary to one task', () => {
   const ledger = new Ledger();
-  ledger.add(stage({ costUsd: 0.05 }));
+  ledger.add(stage({ cost: 0.05 }));
 
   // The REPL keeps one ledger for the whole session, so "this task" has to be
   // a range rather than a fresh instance.
   const mark = ledger.mark();
-  ledger.add(stage({ costUsd: 0.01 }));
-  ledger.add(stage({ costUsd: 0.02 }));
+  ledger.add(stage({ cost: 0.01 }));
+  ledger.add(stage({ cost: 0.02 }));
 
   assert.equal(ledger.summarize(mark).stages, 2);
-  assert.equal(Number(ledger.summarize(mark).totalUsd.toFixed(4)), 0.03);
-  assert.equal(Number(ledger.totalUsd.toFixed(4)), 0.08, 'the session total still counts everything');
+  assert.equal(Number(ledger.summarize(mark).total[0]!.amount.toFixed(4)), 0.03);
+  assert.equal(Number(ledger.total[0]!.amount.toFixed(4)), 0.08, 'the session total still counts everything');
 });
 
 test('finish appends one metrics line per task', () => {
   const dir = mkdtempSync(join(tmpdir(), 'sumo-metrics-'));
   try {
     const ledger = new Ledger();
-    ledger.add(stage({ costUsd: 0.01, inputTokens: 4000, composition: { system: 90, prompt: 900, pack: 700 } }));
+    ledger.add(stage({ cost: 0.01, inputTokens: 4000, composition: { system: 90, prompt: 900, pack: 700 } }));
     ledger.finish(dir, 0, { mode: 'fix', task: 'cart total is wrong', verified: true });
 
-    ledger.add(stage({ costUsd: 0.02 }));
+    ledger.add(stage({ cost: 0.02 }));
     ledger.finish(dir, 1, { mode: 'do', task: 'rename it', verified: false, stopped: 'you stopped it' });
 
     const lines = readFileSync(join(dir, '.sumo', 'metrics.jsonl'), 'utf8')

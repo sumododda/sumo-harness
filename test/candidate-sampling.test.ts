@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import type { Interface } from 'node:readline/promises';
 import type { Engine, StageRequest } from '../src/engine/index.ts';
+import { Fleet } from '../src/engine/fleet.ts';
 import * as features from '../src/features.ts';
 import { LineReader } from '../src/input.ts';
 import { Ledger } from '../src/ledger.ts';
@@ -36,7 +37,9 @@ const REPRO_FILE = 'test/repro.test.js';
 const REPRO_TEST = { file: REPRO_FILE, content: 'assert.equal(1, 2);\n' };
 
 const STUB_RESULT = {
-  costUsd: 0,
+  cost: 0,
+  costUnit: 'usd',
+  provider: 'stub',
   turns: 1,
   inputTokens: 0,
   outputTokens: 0,
@@ -66,6 +69,8 @@ function stubEngine(snapshots: FixSnapshot[]): Engine {
   let call = 0;
   return {
     name: 'stub',
+    costUnit: 'usd' as const,
+    supportsOutputSchema: true,
     modelFor: (tier) => `stub-${tier}`,
     supportsEffort: () => true,
     async runStage(req: StageRequest): Promise<StageResult> {
@@ -156,7 +161,7 @@ async function fixture(runs: readonly ScriptedRun[]) {
     snapshots,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
     ctx: {
-      engine: stubEngine(snapshots),
+      fleet: Fleet.of(stubEngine(snapshots)),
       ledger: new Ledger(),
       state: new TaskState(findRepo(dir), TaskState.newId('fix')),
       cwd: dir,

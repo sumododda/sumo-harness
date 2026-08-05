@@ -12,7 +12,7 @@
  */
 
 import pc from 'picocolors';
-import type { Engine } from '../engine/index.ts';
+import type { Fleet } from '../engine/fleet.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
 import * as features from '../features.ts';
@@ -31,7 +31,7 @@ import { rungAt, type Rung } from '../types.ts';
 import * as ui from '../ui.ts';
 
 export interface FeatureContext {
-  readonly engine: Engine;
+  readonly fleet: Fleet;
   readonly ledger: Ledger;
   readonly state: TaskState;
   readonly cwd: string;
@@ -95,7 +95,7 @@ export async function runFeature(
    */
   resumeFrom?: { readonly plan: ui.Shown<Plan>; readonly tests: number },
 ): Promise<FeatureOutcome> {
-  const { engine, ledger, state, cwd } = ctx;
+  const { fleet, ledger, state, cwd } = ctx;
 
   // 0. Branch first, so everything that follows is reviewable and revertable.
   const branch = await startBranch(task, ctx);
@@ -136,7 +136,7 @@ export async function runFeature(
   // produced, or when resuming lands back at the gate — the survey behind the
   // saved plan is this same task's own explore.md, already on disk.
   const explore = alreadyApproved || resumeFrom || reusable !== null ? null : await runStage(
-    engine,
+    fleet,
     {
       name: 'explore',
       prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
@@ -206,7 +206,7 @@ export async function runFeature(
 
   // 3. Tests first — and only tests.
   const tests = await runStage(
-    engine,
+    fleet,
     {
       name: 'write-tests',
       prompt: WRITE_TESTS_STAGE(approved.plan, exploreText),
@@ -271,7 +271,7 @@ async function implementUntilVerified(
   for (;;) {
     const current = rungAt(ladder.rung);
     const implement = await runStage(
-      ctx.engine,
+      ctx.fleet,
       {
         name: 'implement',
         prompt: IMPLEMENT_STAGE(plan, testOutput, preExisting),
@@ -437,7 +437,7 @@ async function producePlan(
   ctx: FeatureContext,
 ): Promise<PlanAttempt> {
   const planned = await runStage(
-    ctx.engine,
+    ctx.fleet,
     {
       name: 'plan',
       prompt: FEATURE_PLAN_STAGE(task, findings, notes),
@@ -537,7 +537,7 @@ async function gatePlan(
     // proposal intact and the revision budget untouched.
     if (decision.kind === 'discuss') {
       await runStage(
-        ctx.engine,
+        ctx.fleet,
         {
           name: 'discuss',
           prompt: DISCUSS_STAGE(plan.prompt, decision.question),

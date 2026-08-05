@@ -39,7 +39,8 @@
     "sumo": "node src/cli.ts",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "prepare": "npm run build",
-    "build:model": "node scripts/build-router-model.ts"
+    "build:model": "node scripts/build-router-model.ts",
+    "build:catalog": "node scripts/build-catalog.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.220",

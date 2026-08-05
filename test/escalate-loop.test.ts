@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Interface } from 'node:readline/promises';
 import type { Engine, StageRequest } from '../src/engine/index.ts';
+import { Fleet } from '../src/engine/fleet.ts';
 import { LineReader } from '../src/input.ts';
 import { Ledger } from '../src/ledger.ts';
 import { run } from '../src/runner.ts';
@@ -26,6 +27,8 @@ import { runFix } from '../src/workflows/fix.ts';
 function stubEngine(seen: { stage: string; tier: Tier; effort?: string }[]): Engine {
   return {
     name: 'stub',
+    costUnit: 'usd' as const,
+    supportsOutputSchema: true,
     modelFor: (tier) => `stub-${tier}`,
     supportsEffort: () => true,
     async runStage(req: StageRequest): Promise<StageResult> {
@@ -37,7 +40,9 @@ function stubEngine(seen: { stage: string; tier: Tier; effort?: string }[]): Eng
       return {
         stage: req.stage,
         output: req.stage === 'evidence' ? 'Observations\n- none\nRepro — none' : 'done',
-        costUsd: 0,
+        cost: 0,
+        costUnit: 'usd',
+        provider: 'stub',
         turns: 1,
         inputTokens: 0,
         outputTokens: 0,
@@ -107,7 +112,7 @@ async function fixture(failures: number) {
     dir,
     seen,
     ctx: {
-      engine: stubEngine(seen),
+      fleet: Fleet.of(stubEngine(seen)),
       ledger: new Ledger(),
       state: new TaskState(findRepo(dir), 'ladder-test'),
       cwd: dir,

@@ -16,7 +16,7 @@ import {
   RootCause,
 } from './schemas.ts';
 import { rule } from './statusbar.ts';
-import { describeRung, type Rung } from './types.ts';
+import { type CostTotal, type CostUnit, describeRung, type Rung } from './types.ts';
 
 export const PROMPT = pc.cyan('› ');
 
@@ -121,8 +121,30 @@ export function renderArtifact(text: string): void {
   );
 }
 
-export function cost(usd: number): string {
-  return pc.dim(`  $${usd.toFixed(4)}`);
+/**
+ * A cost, rendered in the unit it was actually incurred in.
+ *
+ * The one place that turns a cost into text. Everything that shows spend goes
+ * through here, so adding a provider that does not bill in money is a case in
+ * this function rather than a `$` to hunt down across the harness.
+ */
+export function money(amount: number, unit: CostUnit): string {
+  return unit === 'usd' ? `$${amount.toFixed(4)}` : `${amount.toFixed(2)} cr`;
+}
+
+/**
+ * Per-unit totals as one string, e.g. `$0.0412` or `$0.0412 + 3.30 cr`.
+ *
+ * Empty totals render as a zero in money rather than as nothing, so a task that
+ * spent nothing still says so.
+ */
+export function renderTotals(totals: readonly CostTotal[]): string {
+  if (totals.length === 0) return money(0, 'usd');
+  return totals.map((t) => money(t.amount, t.unit)).join(' + ');
+}
+
+export function cost(totals: readonly CostTotal[]): string {
+  return pc.dim(`  ${renderTotals(totals)}`);
 }
 
 /**

@@ -80,7 +80,7 @@ program
   .action(async (task: string, opts: { rung?: number; budget?: number; provider?: string }) => {
     process.exitCode = await runDo(task, {
       ...(opts.rung !== undefined ? { rung: opts.rung } : {}),
-      ...(opts.budget !== undefined ? { budgetUsd: opts.budget } : {}),
+      ...(opts.budget !== undefined ? { budget: opts.budget } : {}),
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
     });
   });

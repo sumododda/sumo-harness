@@ -7,6 +7,7 @@
 
 import pc from 'picocolors';
 import { getEngine } from '../engine/index.ts';
+import { Fleet, policyFromEnv } from '../engine/fleet.ts';
 import { Ledger } from '../ledger.ts';
 import { DO_STAGE } from '../prompts.ts';
 import { runStage } from '../stage.ts';
@@ -16,17 +17,17 @@ import { rungAt } from '../types.ts';
 export interface DoOptions {
   readonly rung?: number;
   readonly provider?: string;
-  readonly budgetUsd?: number;
+  readonly budget?: number;
 }
 
 export async function runDo(task: string, opts: DoOptions = {}): Promise<number> {
   const repo = findRepo();
   const state = new TaskState(repo, TaskState.newId('do'));
-  const engine = getEngine(opts.provider);
+  const fleet = new Fleet([getEngine(opts.provider)], policyFromEnv());
   const ledger = new Ledger();
 
   const result = await runStage(
-    engine,
+    fleet,
     {
       name: 'do',
       prompt: DO_STAGE(task),
@@ -34,7 +35,7 @@ export async function runDo(task: string, opts: DoOptions = {}): Promise<number>
       capabilities: ['read', 'search', 'edit'],
       cwd: repo.root,
       allowWrites: true,
-      ...(opts.budgetUsd !== undefined ? { maxBudgetUsd: opts.budgetUsd } : {}),
+      ...(opts.budget !== undefined ? { maxBudget: opts.budget } : {}),
     },
     ledger,
   );

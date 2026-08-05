@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import type { Interface } from 'node:readline/promises';
 import type { Engine, StageRequest } from '../src/engine/index.ts';
+import { Fleet } from '../src/engine/fleet.ts';
 import * as features from '../src/features.ts';
 import { LineReader } from '../src/input.ts';
 import { Ledger } from '../src/ledger.ts';
@@ -46,7 +47,9 @@ function scriptedInput(answers: readonly string[]): LineReader {
 }
 
 const STUB_RESULT = {
-  costUsd: 0,
+  cost: 0,
+  costUnit: 'usd',
+  provider: 'stub',
   turns: 1,
   inputTokens: 0,
   outputTokens: 0,
@@ -131,6 +134,8 @@ function stubFixEngine(snapshots: FixSnapshot[]): Engine {
   let attempt = 0;
   return {
     name: 'stub',
+    costUnit: 'usd' as const,
+    supportsOutputSchema: true,
     modelFor: (tier) => `stub-${tier}`,
     supportsEffort: () => true,
     async runStage(req: StageRequest): Promise<StageResult> {
@@ -177,7 +182,7 @@ async function fixFixture(failures: number) {
     dir,
     snapshots,
     ctx: {
-      engine: stubFixEngine(snapshots),
+      fleet: Fleet.of(stubFixEngine(snapshots)),
       ledger: new Ledger(),
       state: new TaskState(findRepo(dir), 'clean-retries-fix'),
       cwd: dir,
@@ -271,7 +276,7 @@ test('outside a git repo the retry loop neither throws nor attempts a revert', a
   const snapshots: FixSnapshot[] = [];
   try {
     const outcome = await runFix('something is broken', { tier: 'small' }, {
-      engine: stubFixEngine(snapshots),
+      fleet: Fleet.of(stubFixEngine(snapshots)),
       ledger: new Ledger(),
       state: new TaskState(findRepo(dir), 'clean-retries-fix-nogit'),
       cwd: dir,
@@ -305,6 +310,8 @@ function stubFeatureEngine(snapshots: ImplementSnapshot[]): Engine {
   let attempt = 0;
   return {
     name: 'stub',
+    costUnit: 'usd' as const,
+    supportsOutputSchema: true,
     modelFor: (tier) => `stub-${tier}`,
     supportsEffort: () => true,
     async runStage(req: StageRequest): Promise<StageResult> {
@@ -362,7 +369,7 @@ async function featureFixture(failOn: readonly number[]) {
       rmSync(aux, { recursive: true, force: true });
     },
     ctx: {
-      engine: stubFeatureEngine(snapshots),
+      fleet: Fleet.of(stubFeatureEngine(snapshots)),
       ledger: new Ledger(),
       state: new TaskState(findRepo(dir), 'clean-retries-feature'),
       cwd: dir,

@@ -1,0 +1,651 @@
+{
+  "source": "https://models.dev/api.json",
+  "providers": {
+    "anthropic": [
+      {
+        "id": "claude-haiku-4-5",
+        "name": "Claude Haiku 4.5 (latest)",
+        "outputPerMtok": 5,
+        "inputPerMtok": 1,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-10-15"
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "name": "Claude Haiku 4.5",
+        "outputPerMtok": 5,
+        "inputPerMtok": 1,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-10-15"
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "outputPerMtok": 10,
+        "inputPerMtok": 2,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-06-29"
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "releaseDate": "2026-02-17"
+      },
+      {
+        "id": "claude-sonnet-4-5",
+        "name": "Claude Sonnet 4.5 (latest)",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-09-29"
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "name": "Claude Sonnet 4.5",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-09-29"
+      },
+      {
+        "id": "claude-opus-4-6",
+        "name": "Claude Opus 4.6",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "releaseDate": "2026-02-04"
+      },
+      {
+        "id": "claude-opus-4-8",
+        "name": "Claude Opus 4.8",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-05-28"
+      },
+      {
+        "id": "claude-opus-4-5-20251101",
+        "name": "Claude Opus 4.5",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2025-11-24"
+      },
+      {
+        "id": "claude-opus-4-7",
+        "name": "Claude Opus 4.7",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-04-14"
+      },
+      {
+        "id": "claude-opus-4-5",
+        "name": "Claude Opus 4.5 (latest)",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2025-11-24"
+      },
+      {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-07-24"
+      },
+      {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "outputPerMtok": 50,
+        "inputPerMtok": 10,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-06-07"
+      },
+      {
+        "id": "claude-opus-4-1",
+        "name": "Claude Opus 4.1 (latest)",
+        "outputPerMtok": 75,
+        "inputPerMtok": 15,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-08-05"
+      },
+      {
+        "id": "claude-opus-4-1-20250805",
+        "name": "Claude Opus 4.1",
+        "outputPerMtok": 75,
+        "inputPerMtok": 15,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-08-05"
+      }
+    ],
+    "github-copilot": [
+      {
+        "id": "gpt-5.6-luna",
+        "name": "GPT-5.6 Luna",
+        "outputPerMtok": 1.2,
+        "inputPerMtok": 0.2,
+        "contextWindow": 1050000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-07-09"
+      },
+      {
+        "id": "gpt-5.4-nano",
+        "name": "GPT-5.4 nano",
+        "outputPerMtok": 1.25,
+        "inputPerMtok": 0.2,
+        "contextWindow": 400000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2026-03-17"
+      },
+      {
+        "id": "gpt-5-mini",
+        "name": "GPT-5 Mini",
+        "outputPerMtok": 2,
+        "inputPerMtok": 0.25,
+        "contextWindow": 264000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2025-08-07"
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "name": "Kimi K2.7 Code",
+        "outputPerMtok": 4,
+        "inputPerMtok": 0.95,
+        "contextWindow": 256000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2026-06-12"
+      },
+      {
+        "id": "mai-code-1-flash-picker",
+        "name": "MAI-Code-1-Flash",
+        "outputPerMtok": 4.5,
+        "inputPerMtok": 0.75,
+        "contextWindow": 256000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2026-06-02"
+      },
+      {
+        "id": "gpt-5.4-mini",
+        "name": "GPT-5.4 mini",
+        "outputPerMtok": 4.5,
+        "inputPerMtok": 0.75,
+        "contextWindow": 400000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "releaseDate": "2026-03-17"
+      },
+      {
+        "id": "claude-haiku-4.5",
+        "name": "Claude Haiku 4.5 (latest)",
+        "outputPerMtok": 5,
+        "inputPerMtok": 1,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-10-15"
+      },
+      {
+        "id": "grok-4.5",
+        "name": "Grok 4.5",
+        "outputPerMtok": 6,
+        "inputPerMtok": 2,
+        "contextWindow": 500000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2026-07-08"
+      },
+      {
+        "id": "gemini-3.6-flash",
+        "name": "Gemini 3.6 Flash",
+        "outputPerMtok": 7.5,
+        "inputPerMtok": 1.5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2026-07-21"
+      },
+      {
+        "id": "gpt-4.1",
+        "name": "GPT-4.1",
+        "outputPerMtok": 8,
+        "inputPerMtok": 2,
+        "contextWindow": 128000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-04-14"
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "outputPerMtok": 9,
+        "inputPerMtok": 1.5,
+        "contextWindow": 200000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2026-05-19"
+      },
+      {
+        "id": "claude-sonnet-5",
+        "name": "Claude Sonnet 5",
+        "outputPerMtok": 10,
+        "inputPerMtok": 2,
+        "contextWindow": 1000000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-06-30"
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "outputPerMtok": 12,
+        "inputPerMtok": 2,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "releaseDate": "2026-02-19"
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "name": "GPT-5.6 Terra",
+        "outputPerMtok": 12,
+        "inputPerMtok": 2,
+        "contextWindow": 1050000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-07-09"
+      },
+      {
+        "id": "gpt-5.2-codex",
+        "name": "GPT-5.2 Codex",
+        "outputPerMtok": 14,
+        "inputPerMtok": 1.75,
+        "contextWindow": 400000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-12-11"
+      },
+      {
+        "id": "gpt-5.2",
+        "name": "GPT-5.2",
+        "outputPerMtok": 14,
+        "inputPerMtok": 1.75,
+        "contextWindow": 400000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-12-11"
+      },
+      {
+        "id": "gpt-5.3-codex",
+        "name": "GPT-5.3 Codex",
+        "outputPerMtok": 14,
+        "inputPerMtok": 1.75,
+        "contextWindow": 400000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "releaseDate": "2026-02-05"
+      },
+      {
+        "id": "claude-sonnet-4.6",
+        "name": "Claude Sonnet 4.6",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "releaseDate": "2026-02-17"
+      },
+      {
+        "id": "claude-sonnet-4.5",
+        "name": "Claude Sonnet 4.5 (latest)",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-09-29"
+      },
+      {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "outputPerMtok": 15,
+        "inputPerMtok": 2.5,
+        "contextWindow": 1050000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "releaseDate": "2026-03-05"
+      },
+      {
+        "id": "claude-sonnet-4",
+        "name": "Claude Sonnet 4 (latest)",
+        "outputPerMtok": 15,
+        "inputPerMtok": 3,
+        "contextWindow": 216000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-05-22"
+      },
+      {
+        "id": "claude-opus-4.5",
+        "name": "Claude Opus 4.5 (latest)",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [],
+        "releaseDate": "2025-11-24"
+      },
+      {
+        "id": "claude-opus-4.7",
+        "name": "Claude Opus 4.7",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-04-16"
+      },
+      {
+        "id": "claude-opus-4.8",
+        "name": "Claude Opus 4.8",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-05-28"
+      },
+      {
+        "id": "claude-opus-5",
+        "name": "Claude Opus 5",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 1000000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-07-24"
+      },
+      {
+        "id": "claude-opus-4.6",
+        "name": "Claude Opus 4.6",
+        "outputPerMtok": 25,
+        "inputPerMtok": 5,
+        "contextWindow": 200000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "releaseDate": "2026-02-05"
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "name": "GPT-5.6 Sol",
+        "outputPerMtok": 30,
+        "inputPerMtok": 5,
+        "contextWindow": 1050000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-07-09"
+      },
+      {
+        "id": "gpt-5.5",
+        "name": "GPT-5.5",
+        "outputPerMtok": 30,
+        "inputPerMtok": 5,
+        "contextWindow": 1050000,
+        "structuredOutput": true,
+        "toolCall": true,
+        "efforts": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "releaseDate": "2026-04-23"
+      },
+      {
+        "id": "claude-fable-5",
+        "name": "Claude Fable 5",
+        "outputPerMtok": 50,
+        "inputPerMtok": 10,
+        "contextWindow": 1000000,
+        "structuredOutput": null,
+        "toolCall": true,
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "releaseDate": "2026-06-09"
+      }
+    ]
+  }
+}

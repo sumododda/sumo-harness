@@ -72,7 +72,7 @@ test('a finished stage reports its cost and what comes next', () => {
   const progress = new Progress('fix');
   const output = captured(() => {
     progress.begin('evidence');
-    progress.done('', 0.0412);
+    progress.done('', 0.0412, 'usd');
   });
 
   assert.match(output, /\$0\.0412/);
@@ -83,7 +83,7 @@ test('a replayed stage says so instead of quoting a price', () => {
   const progress = new Progress('fix');
   const output = captured(() => {
     progress.begin('evidence');
-    progress.done('', 0, true);
+    progress.done('', 0, 'usd', true);
   });
 
   assert.match(output, /reused/);
@@ -94,7 +94,7 @@ test('the step before a gate warns that it will wait', () => {
   const progress = new Progress('feature');
   const output = captured(() => {
     progress.begin('plan');
-    progress.done('', 0.01);
+    progress.done('', 0.01, 'usd');
   });
 
   assert.match(output, /next: approval — waits for you/);
@@ -104,7 +104,7 @@ test('the last step promises nothing after it', () => {
   const progress = new Progress('fix');
   const output = captured(() => {
     progress.begin('verify');
-    progress.done('', 0);
+    progress.done('', 0, 'usd');
   });
 
   assert.doesNotMatch(output, /next:/);
@@ -116,7 +116,7 @@ test('a stage outside the route still renders', () => {
   const progress = new Progress('fix');
   const output = captured(() => {
     progress.begin('discuss');
-    progress.done('', 0.002);
+    progress.done('', 0.002, 'usd');
   });
 
   assert.match(output, /discuss/);
@@ -124,5 +124,5 @@ test('a stage outside the route still renders', () => {
 });
 
 test('done without begin does nothing rather than throwing', () => {
-  assert.equal(captured(() => new Progress('fix').done('', 0)), '');
+  assert.equal(captured(() => new Progress('fix').done('', 0, 'usd')), '');
 });

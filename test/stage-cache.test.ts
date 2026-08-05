@@ -15,6 +15,7 @@ import { afterEach, test } from 'node:test';
 import * as features from '../src/features.ts';
 import type { Engine, StageRequest } from '../src/engine/types.ts';
 import { invalidate } from '../src/hash.ts';
+import { Fleet } from '../src/engine/fleet.ts';
 import { Ledger } from '../src/ledger.ts';
 import { run } from '../src/runner.ts';
 import { runStage, type StageSpec } from '../src/stage.ts';
@@ -23,6 +24,8 @@ import type { StageResult, Tier } from '../src/types.ts';
 /** Counts calls, so a cache hit is observable rather than inferred from cost. */
 class CountingEngine implements Engine {
   readonly name = 'stub';
+  readonly costUnit = 'usd' as const;
+  readonly supportsOutputSchema = true;
   calls = 0;
 
   modelFor(tier: Tier): string {
@@ -38,7 +41,9 @@ class CountingEngine implements Engine {
     return {
       stage: req.stage,
       output: `answer ${this.calls}`,
-      costUsd: 0.02,
+      cost: 0.02,
+      costUnit: 'usd',
+      provider: 'stub',
       turns: 1,
       inputTokens: 1000,
       outputTokens: 100,
@@ -79,14 +84,14 @@ test('an identical read-only stage is replayed without calling the provider', as
   const dir = await repo();
   const engine = new CountingEngine();
   try {
-    const first = await runStage(engine, spec(dir), new Ledger());
-    const second = await runStage(engine, spec(dir), new Ledger());
+    const first = await runStage(Fleet.of(engine), spec(dir), new Ledger());
+    const second = await runStage(Fleet.of(engine), spec(dir), new Ledger());
 
     assert.equal(engine.calls, 1, 'the second run must not reach the provider');
     assert.equal(second.output, first.output);
     assert.equal(second.cached, true);
-    assert.equal(second.costUsd, 0, 'a replay costs nothing');
-    assert.equal(second.savedUsd, 0.02, 'and records what it saved');
+    assert.equal(second.cost, 0, 'a replay costs nothing');
+    assert.equal(second.saved, 0.02, 'and records what it saved');
     assert.equal(first.cached, undefined, 'the first run was not a replay');
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -97,12 +102,12 @@ test('changing the repository invalidates the answer', async () => {
   const dir = await repo();
   const engine = new CountingEngine();
   try {
-    await runStage(engine, spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
 
     writeFileSync(join(dir, 'cart.js'), 'export const rate = 0.25;\n', 'utf8');
     invalidate(dir);
 
-    const after = await runStage(engine, spec(dir), new Ledger());
+    const after = await runStage(Fleet.of(engine), spec(dir), new Ledger());
     assert.equal(engine.calls, 2, 'the code changed, so the answer must be recomputed');
     assert.equal(after.cached, undefined);
   } finally {
@@ -114,8 +119,8 @@ test('a different prompt is a different question', async () => {
   const dir = await repo();
   const engine = new CountingEngine();
   try {
-    await runStage(engine, spec(dir), new Ledger());
-    await runStage(engine, spec(dir, { prompt: 'what does applyDiscount do?' }), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir, { prompt: 'what does applyDiscount do?' }), new Ledger());
     assert.equal(engine.calls, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -128,8 +133,8 @@ test('a writable stage is never replayed', async () => {
   try {
     const writable = spec(dir, { name: 'fix', capabilities: ['read', 'edit'], allowWrites: true });
 
-    const first = await runStage(engine, writable, new Ledger());
-    const second = await runStage(engine, writable, new Ledger());
+    const first = await runStage(Fleet.of(engine), writable, new Ledger());
+    const second = await runStage(Fleet.of(engine), writable, new Ledger());
 
     // Replaying "edited cart.js" without editing cart.js would be a silent lie.
     assert.equal(engine.calls, 2, 'edits must actually happen every time');
@@ -148,8 +153,8 @@ test('a git-capable stage is never replayed', async () => {
     // set is not the same as having no effect.
     const gitty = spec(dir, { capabilities: ['read', 'git'] });
 
-    await runStage(engine, gitty, new Ledger());
-    await runStage(engine, gitty, new Ledger());
+    await runStage(Fleet.of(engine), gitty, new Ledger());
+    await runStage(Fleet.of(engine), gitty, new Ledger());
     assert.equal(engine.calls, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -168,8 +173,8 @@ test('a truncated stage is not stored', async () => {
 
   const engine = new BudgetCappedEngine();
   try {
-    await runStage(engine, spec(dir), new Ledger());
-    await runStage(engine, spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
 
     // Otherwise the answer would be pinned forever at whatever length the budget
     // happened to allow on the unluckiest run.
@@ -184,8 +189,8 @@ test('outside a git repo nothing is reused', async () => {
   const engine = new CountingEngine();
   try {
     invalidate(dir);
-    await runStage(engine, spec(dir), new Ledger());
-    await runStage(engine, spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
 
     // With no fingerprint there is no way to know the code is unchanged.
     assert.equal(engine.calls, 2);
@@ -216,13 +221,13 @@ test('the edit-format preference applies on the first attempt and not after', as
       preferTargetedEdits: true,
     });
 
-    await runStage(engine, { ...writable, attempt: 0 }, new Ledger());
+    await runStage(Fleet.of(engine), { ...writable, attempt: 0 }, new Ledger());
     assert.ok(
       engine.gate?.('Write', { file_path: join(dir, 'cart.js') }),
       'the first attempt should ask for a targeted edit',
     );
 
-    await runStage(engine, { ...writable, attempt: 1 }, new Ledger());
+    await runStage(Fleet.of(engine), { ...writable, attempt: 1 }, new Ledger());
     assert.equal(
       engine.gate?.('Write', { file_path: join(dir, 'cart.js') }),
       null,
@@ -242,8 +247,8 @@ test('a replayed stage still reaches the event sink', async () => {
       if (event.kind === 'text' && event.text) seen.push(event.text);
     };
 
-    await runStage(engine, spec(dir, { onEvent: sink }), new Ledger());
-    await runStage(engine, spec(dir, { onEvent: sink }), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir, { onEvent: sink }), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir, { onEvent: sink }), new Ledger());
 
     // Without this a cache hit would render as the harness having hung.
     assert.deepEqual(seen, ['answer 1'], 'the stub streams nothing, so this is the replay');

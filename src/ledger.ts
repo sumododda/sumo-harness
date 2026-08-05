@@ -15,7 +15,8 @@ import { dirname, join } from 'node:path';
 import { encode } from '@toon-format/toon';
 import pc from 'picocolors';
 import * as statusbar from './statusbar.ts';
-import { describeRung, type StageResult } from './types.ts';
+import { money, renderTotals } from './ui.ts';
+import { type CostTotal, type CostUnit, describeRung, type StageResult } from './types.ts';
 
 /** How a task ended, for the metrics line. */
 export interface TaskOutcome {
@@ -34,8 +35,10 @@ export interface Summary {
   readonly escalations: number;
   /** Extra `fix` candidates sampled at a rung beyond the first — see `noteCandidate`. */
   readonly candidates: number;
-  readonly totalUsd: number;
-  readonly savedUsd: number;
+  /** Spend, per unit. Empty when nothing ran. */
+  readonly total: readonly CostTotal[];
+  /** Cache savings, per unit. Empty when nothing was replayed. */
+  readonly saved: readonly CostTotal[];
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -51,7 +54,7 @@ export class Ledger {
     this.rows.push(result);
     // The bar shows the running total, so it learns about spend here rather
     // than every caller remembering to tell it.
-    statusbar.cost(this.totalUsd);
+    statusbar.cost(renderTotals(this.total));
   }
 
   /**
@@ -84,8 +87,8 @@ export class Ledger {
     return this.rows.length;
   }
 
-  get totalUsd(): number {
-    return this.rows.reduce((sum, r) => sum + r.costUsd, 0);
+  get total(): readonly CostTotal[] {
+    return totalsBy(this.rows, (r) => r.cost);
   }
 
   get entries(): readonly StageResult[] {
@@ -103,8 +106,8 @@ export class Ledger {
       // Unscoped by `from`, same as `escalations` above — both are counters
       // for the session's ladder, not per-stage rows this slice can filter.
       candidates: this.candidates,
-      totalUsd: sum((r) => r.costUsd),
-      savedUsd: sum((r) => r.savedUsd ?? 0),
+      total: totalsBy(slice, (r) => r.cost),
+      saved: totalsBy(slice, (r) => r.saved ?? 0),
       inputTokens: sum((r) => r.inputTokens),
       outputTokens: sum((r) => r.outputTokens),
       cacheReadTokens: sum((r) => r.cacheReadTokens),
@@ -128,6 +131,13 @@ export class Ledger {
       verified: outcome.verified,
       ...(outcome.stopped ? { stopped: outcome.stopped } : {}),
       rungs: this.rows.slice(from).map((r) => describeRung(r.rung)),
+      // Alongside `rungs` rather than in `stageRows`, deliberately. That is the
+      // TOON artifact fed back into prompts, and a model does not care which
+      // provider served it — a column there would cost tokens on every row of
+      // every stage for nobody's benefit. Here it costs one array per task, in
+      // the file `sumo bench --from-metrics` reads, which is the only thing
+      // that ever wants to compare providers.
+      providers: this.rows.slice(from).map((r) => r.provider),
       ...summary,
     };
 
@@ -160,7 +170,7 @@ export class Ledger {
       String(r.turns),
       // A replayed stage did not run, so a price would be misleading where the
       // reason it is free belongs instead.
-      r.cached ? 'reused' : `$${r.costUsd.toFixed(4)}`,
+      r.cached ? 'reused' : money(r.cost, r.costUnit),
     ]);
 
     const widths = head.map((h, i) =>
@@ -175,7 +185,7 @@ export class Ledger {
 
     const summary = this.summarize(from);
     const notes: string[] = [];
-    if (summary.savedUsd > 0) notes.push(`$${summary.savedUsd.toFixed(4)} reused`);
+    if (summary.saved.length > 0) notes.push(`${renderTotals(summary.saved)} reused`);
     if (summary.retries > 0) notes.push(`${summary.retries} ${plural(summary.retries, 'retry', 'retries')}`);
     if (summary.escalations > 0) notes.push(`${summary.escalations} escalated`);
     // Named "pcache" to match the per-stage column and to keep it visibly
@@ -190,7 +200,7 @@ export class Ledger {
       line(head, true),
       ...body.map((row) => line(row, false)),
       pc.dim('─'.repeat(widths.reduce((a, b) => a + b + 2, -2))),
-      pc.bold(`total  $${summary.totalUsd.toFixed(4)}`) +
+      pc.bold(`total  ${renderTotals(summary.total)}`) +
         (notes.length > 0 ? pc.dim(`  ·  ${notes.join('  ·  ')}`) : ''),
     ].join('\n');
   }
@@ -198,6 +208,26 @@ export class Ledger {
 
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
+}
+
+/**
+ * Sums rows into one entry per cost unit, dropping units that came to nothing.
+ *
+ * Zero-valued units are dropped so a task where every stage was replayed from
+ * cache reads as "no spend" rather than "$0.0000", and so `saved` stays empty
+ * until something was actually saved.
+ */
+function totalsBy(
+  rows: readonly StageResult[],
+  pick: (r: StageResult) => number,
+): readonly CostTotal[] {
+  const byUnit = new Map<CostUnit, number>();
+  for (const r of rows) {
+    const amount = pick(r);
+    if (amount === 0) continue;
+    byUnit.set(r.costUnit, (byUnit.get(r.costUnit) ?? 0) + amount);
+  }
+  return [...byUnit].map(([unit, amount]) => ({ unit, amount }));
 }
 
 /**
@@ -213,7 +243,7 @@ export function stageRows(entries: readonly StageResult[]): Record<string, unkno
     stage: r.stage,
     model: r.model,
     effort: r.rung.effort ?? 'off',
-    costUsd: Number(r.costUsd.toFixed(4)),
+    cost: Number(r.cost.toFixed(4)),
     turns: r.turns,
     inputTokens: r.inputTokens,
     outputTokens: r.outputTokens,

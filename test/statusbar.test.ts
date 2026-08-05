@@ -16,7 +16,7 @@ const SPIN = '⠋';
 
 test('an idle line names the repo and the session total', () => {
   const line = render(
-    { activity: '', since: Date.now(), costUsd: 0.0412, where: 'sumo-news' },
+    { activity: '', since: Date.now(), cost: '$0.0412', where: 'sumo-news' },
     WIDTH,
     SPIN,
   );
@@ -27,7 +27,7 @@ test('an idle line names the repo and the session total', () => {
 
 test('a busy line shows the stage, a clock, and that typing is allowed', () => {
   const line = render(
-    { activity: 'evidence 1/5', since: Date.now() - 12_000, costUsd: 0.0412, where: 'x' },
+    { activity: 'evidence 1/5', since: Date.now() - 12_000, cost: '$0.0412', where: 'x' },
     WIDTH,
     SPIN,
   );
@@ -41,7 +41,7 @@ test('a busy line shows the stage, a clock, and that typing is allowed', () => {
 
 test('the clock rolls into minutes rather than counting seconds forever', () => {
   const line = render(
-    { activity: 'implement 5/6', since: Date.now() - 125_000, costUsd: 0, where: 'x' },
+    { activity: 'implement 5/6', since: Date.now() - 125_000, cost: '$0.0000', where: 'x' },
     WIDTH,
     SPIN,
   );
@@ -56,7 +56,7 @@ test('the line never wraps, because a wrapped line cannot be erased', () => {
     {
       activity: 'root-cause 2/5 with an unreasonably long stage name',
       since: Date.now(),
-      costUsd: 1.2345,
+      cost: '$1.2345',
       where: 'x',
     },
     32,
@@ -72,7 +72,7 @@ test('the line never wraps, because a wrapped line cannot be erased', () => {
 test('an absurdly narrow terminal still produces something printable', () => {
   for (const width of [1, 5, 12]) {
     const line = render(
-      { activity: 'evidence 1/5', since: Date.now(), costUsd: 0.5, where: 'x' },
+      { activity: 'evidence 1/5', since: Date.now(), cost: '$0.5000', where: 'x' },
       width,
       SPIN,
     );
@@ -93,7 +93,7 @@ test('a terminal that reports no width still renders something', () => {
   // a pty with no window size, which is what CI and `script` produce. Taken
   // literally it rendered a line of no characters and a rule of none either.
   const line = render(
-    { activity: 'evidence 1/5', since: Date.now(), costUsd: 0.5, where: 'x' },
+    { activity: 'evidence 1/5', since: Date.now(), cost: '$0.5000', where: 'x' },
     0,
     SPIN,
   );

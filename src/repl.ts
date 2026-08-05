@@ -11,6 +11,7 @@ import pc from 'picocolors';
 import * as cache from './cache.ts';
 import { Conversation } from './conversation.ts';
 import { getEngine } from './engine/index.ts';
+import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
 import { routeLocally } from './route/local.ts';
 import {
@@ -93,6 +94,7 @@ export async function repl(providerName?: string): Promise<number> {
   // Do this before /index can create one, not only when a task starts.
   hideToolingFromGit(repo);
   const engine = getEngine(providerName);
+  const fleet = new Fleet([engine], policyFromEnv());
   const ledger = new Ledger();
   const conversation = new Conversation();
   const state: ReplState = { mode: 'auto', rung: null, lastRequest: null };
@@ -130,7 +132,7 @@ export async function repl(providerName?: string): Promise<number> {
   // `code` is re-assignable, so deps reads it through a getter rather than
   // capturing a stale value when /index or /lsp swaps the backend.
   const deps: TurnDeps = {
-    engine, repo, ledger, conversation, state, input,
+    fleet, repo, ledger, conversation, state, input,
     get testCommand() {
       return testCommand;
     },
@@ -210,7 +212,7 @@ export async function repl(providerName?: string): Promise<number> {
 }
 
 interface TurnDeps {
-  readonly engine: ReturnType<typeof getEngine>;
+  readonly fleet: Fleet;
   readonly repo: ReturnType<typeof findRepo>;
   readonly ledger: Ledger;
   readonly conversation: Conversation;
@@ -223,7 +225,7 @@ interface TurnDeps {
 }
 
 async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
-  const { engine, repo, ledger, conversation } = deps;
+  const { fleet, repo, ledger, conversation } = deps;
 
   // The tree may have moved since the last turn — by a previous stage, or by the
   // user in another window. Everything reused below is keyed on its content, so
@@ -272,10 +274,9 @@ async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
   const spec = specFor(intent.mode, input, contextWithPack(context, pack), repo.root);
 
   try {
-    const before = ledger.totalUsd;
     const mark = ledger.mark();
     const result = await runStage(
-      engine,
+      fleet,
       {
         ...spec,
         rung: intent.rung,
@@ -288,7 +289,7 @@ async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
 
     // Live streaming already printed the text; just close the block.
     ui.endTurn();
-    process.stdout.write(`${ui.cost(ledger.totalUsd - before)}\n\n`);
+    process.stdout.write(`${ui.cost(ledger.summarize(mark).total)}\n\n`);
 
     conversation.add('sumo', result.output);
     if (spec.allowWrites && result.output.length > 0) {
@@ -407,8 +408,7 @@ async function runWorkflowTurn(
    */
   resume?: { readonly state: TaskState; readonly gate: GateResume },
 ): Promise<void> {
-  const { engine, repo, ledger, conversation, input, testCommand } = deps;
-  const before = ledger.totalUsd;
+  const { fleet, repo, ledger, conversation, input, testCommand } = deps;
   // The session ledger spans every turn, so this task is a range within it.
   const mark = ledger.mark();
   const state = resume?.state ?? new TaskState(repo, TaskState.newId(mode));
@@ -425,7 +425,7 @@ async function runWorkflowTurn(
   const progress = new Progress(mode);
 
   const ctx = {
-    engine,
+    fleet,
     ledger,
     state,
     cwd: repo.root,
@@ -456,7 +456,7 @@ async function runWorkflowTurn(
         // otherwise /resume would offer to redo work that is already done.
         state.saveProgress({ mode, task, stage: 'planned', finished: true });
         ledger.finish(repo.root, mark, { mode, task, verified: false });
-        process.stdout.write(`${ui.cost(ledger.totalUsd - before)}\n\n`);
+        process.stdout.write(`${ui.cost(ledger.summarize(mark).total)}\n\n`);
         return;
       }
       // Approved: build exactly what was agreed to, rather than planning it
@@ -536,7 +536,7 @@ async function runWorkflowTurn(
     if ('branch' in outcome && outcome.branch) {
       process.stdout.write(pc.dim(`  on branch ${pc.cyan(outcome.branch)}\n`));
     }
-    process.stdout.write(`${ui.cost(ledger.totalUsd - before)}\n`);
+    process.stdout.write(`${ui.cost(ledger.summarize(mark).total)}\n`);
     process.stderr.write(pc.dim(`  artifacts: ${state.dir}\n\n`));
   } catch (cause) {
     if (cause instanceof SumoError) {
@@ -549,7 +549,7 @@ async function runWorkflowTurn(
 
 /** Rules first; one cheap classification only when they cannot decide. */
 async function decideIntent(input: string, deps: TurnDeps): Promise<Intent> {
-  const { engine, repo, ledger, state } = deps;
+  const { fleet, repo, ledger, state } = deps;
 
   const sticky = state.mode === 'auto' ? undefined : state.mode;
   const ruled = classify(input, sticky);
@@ -570,7 +570,7 @@ async function decideIntent(input: string, deps: TurnDeps): Promise<Intent> {
   // Ambiguous even to the model. One turn, no tools, cheapest model.
   try {
     const result = await runStage(
-      engine,
+      fleet,
       {
         name: 'route',
         prompt: CLASSIFY_PROMPT(input),
@@ -580,7 +580,7 @@ async function decideIntent(input: string, deps: TurnDeps): Promise<Intent> {
         // Headroom: the model sometimes emits a sentence before the structured
         // answer, and a router that runs out of turns costs money for nothing.
         maxTurns: 3,
-        maxBudgetUsd: 0.02,
+        maxBudget: 0.02,
         outputSchema: CLASSIFY_SCHEMA,
       },
       ledger,

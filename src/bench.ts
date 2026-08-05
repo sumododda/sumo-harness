@@ -30,14 +30,16 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import { getEngine } from './engine/index.ts';
+import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { ALL_OFF, type Features, set as setFeatures } from './features.ts';
 import { invalidate } from './hash.ts';
 import { LineReader } from './input.ts';
 import { Ledger, type Summary } from './ledger.ts';
+import { money, renderTotals } from './ui.ts';
 import { openContext } from './context/index.ts';
 import { detectTestCommand, run } from './runner.ts';
 import { TaskState } from './state.ts';
-import { rungAt } from './types.ts';
+import { type CostTotal, type CostUnit, rungAt } from './types.ts';
 import { runFix } from './workflows/fix.ts';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'fixtures');
@@ -295,7 +297,7 @@ async function runOne(
       return null;
     }
 
-    const engine = getEngine(opts.provider);
+    const fleet = new Fleet([getEngine(opts.provider)], policyFromEnv());
     const ledger = new Ledger();
     const code = await openContext(dir, { allowInit: true });
     const pack = code.ready ? await code.pack(task.task) : '';
@@ -305,7 +307,7 @@ async function runOne(
       task.task,
       rungAt(opts.rung ?? 0),
       {
-        engine,
+        fleet,
         ledger,
         state: new TaskState({ root: dir, isGit: true }, TaskState.newId('bench')),
         cwd: dir,
@@ -326,7 +328,7 @@ async function runOne(
     process.stdout.write(
       `  ${verified ? pc.green('✓') : pc.red('✗')} ${task.fixture.padEnd(8)} ` +
         pc.dim(
-          `$${summary.totalUsd.toFixed(4)}  ${summary.inputTokens} in  ${summary.outputTokens} out` +
+          `${renderTotals(summary.total)}  ${summary.inputTokens} in  ${summary.outputTokens} out` +
             `  ${summary.retries} retries  ${((Date.now() - started) / 1000).toFixed(0)}s\n`,
         ),
     );
@@ -343,6 +345,58 @@ async function runOne(
   }
 }
 
+/**
+ * Reads a metrics line's cost, whichever shape it was written in.
+ *
+ * A number comes from a line that predates multi-unit accounting, when every
+ * provider billed in dollars — so it is read as dollars rather than discarded,
+ * and sessions recorded before this change stay comparable with ones after it.
+ */
+function toTotals(
+  totals: readonly CostTotal[] | undefined,
+  legacyUsd: number | undefined,
+): readonly CostTotal[] {
+  if (totals !== undefined) return totals;
+  if (legacyUsd === undefined || legacyUsd === 0) return [];
+  return [{ unit: 'usd', amount: legacyUsd }];
+}
+
+/** Sums totals lists into one entry per unit. */
+function mergeTotals(lists: readonly (readonly CostTotal[])[]): readonly CostTotal[] {
+  const byUnit = new Map<CostUnit, number>();
+  for (const list of lists) {
+    for (const t of list) byUnit.set(t.unit, (byUnit.get(t.unit) ?? 0) + t.amount);
+  }
+  return [...byUnit].map(([unit, amount]) => ({ unit, amount }));
+}
+
+/**
+ * The single number a totals list represents, or null when it is not one number.
+ *
+ * Bench divides cost by verified tasks and averages that across cycles, and
+ * neither operation means anything across units — there is no exchange rate
+ * between dollars and credits. A run that spanned providers therefore reports
+ * what it spent and declines the ratio, instead of averaging two quantities
+ * that are not the same quantity.
+ */
+function soleAmount(totals: readonly CostTotal[]): number | null {
+  if (totals.length === 0) return 0;
+  if (totals.length > 1) return null;
+  return totals[0]!.amount;
+}
+
+/** The unit a run was measured in, or null when it spanned more than one. */
+function soleUnit(totals: readonly CostTotal[]): CostUnit | null {
+  return totals.length === 1 ? totals[0]!.unit : null;
+}
+
+/** Cost per verified task, or `—` when there is no single number to divide. */
+function perVerified(totals: readonly CostTotal[], verified: number): string {
+  const amount = soleAmount(totals);
+  if (verified === 0 || amount === null) return '—';
+  return money(amount / verified, soleUnit(totals) ?? 'usd');
+}
+
 function total(summaries: readonly Summary[]): Summary {
   const sum = (pick: (s: Summary) => number) => summaries.reduce((t, s) => t + pick(s), 0);
   return {
@@ -350,8 +404,8 @@ function total(summaries: readonly Summary[]): Summary {
     retries: sum((s) => s.retries),
     escalations: sum((s) => s.escalations),
     candidates: sum((s) => s.candidates),
-    totalUsd: sum((s) => s.totalUsd),
-    savedUsd: sum((s) => s.savedUsd),
+    total: mergeTotals(summaries.map((s) => s.total)),
+    saved: mergeTotals(summaries.map((s) => s.saved)),
     inputTokens: sum((s) => s.inputTokens),
     outputTokens: sum((s) => s.outputTokens),
     cacheReadTokens: sum((s) => s.cacheReadTokens),
@@ -367,10 +421,11 @@ export function render(rows: readonly Row[], label = 'config'): string {
     String(r.summary.inputTokens),
     String(r.summary.outputTokens),
     String(r.summary.retries),
-    `$${r.summary.totalUsd.toFixed(4)}`,
+    renderTotals(r.summary.total),
     // The denominator is the whole point: tokens saved at the cost of a failed
-    // task are not saved at all.
-    r.verified > 0 ? `$${(r.summary.totalUsd / r.verified).toFixed(4)}` : '—',
+    // task are not saved at all. A run that spanned cost units has no single
+    // ratio to show, so it shows none rather than a blended one.
+    perVerified(r.summary.total, r.verified),
   ]);
 
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((row) => row[i]!.length)));
@@ -417,15 +472,35 @@ export interface RepeatedRow {
   readonly inputTokens: Stat | null;
   readonly outputTokens: Stat | null;
   readonly retries: Stat | null;
-  readonly totalUsd: Stat | null;
+  readonly total: Stat | null;
   /** Cost per verified task, one sample per cycle — the number the spread is about. */
   readonly costPerVerified: Stat | null;
+  /**
+   * The unit the two cost stats are in.
+   *
+   * Null when the cycles did not share one, which is also when both stats are
+   * null: a mean across dollars and credits would be a number with no meaning.
+   */
+  readonly unit: CostUnit | null;
 }
 
 export function buildRepeatedRow(config: string, cycles: readonly CycleResult[]): RepeatedRow {
+  // A cycle contributes a comparable number only when its spend was in a single
+  // unit. One that spanned providers is excluded from the arithmetic rather
+  // than flattened into it.
+  const amounts = cycles.map((c) => ({ cycle: c, amount: soleAmount(c.summary.total) }));
+  const comparable = amounts.filter(
+    (a): a is { cycle: CycleResult; amount: number } => a.amount !== null,
+  );
+
+  const units = new Set(cycles.map((c) => soleUnit(c.summary.total)).filter((u) => u !== null));
+  const unit = units.size === 1 ? [...units][0]! : null;
+
   // Only a cycle that verified something has a defined cost per verified task;
   // a shutout cycle would divide by zero rather than say "infinitely expensive".
-  const costs = cycles.filter((c) => c.verified > 0).map((c) => c.summary.totalUsd / c.verified);
+  const costs = comparable
+    .filter(({ cycle }) => cycle.verified > 0)
+    .map(({ cycle, amount }) => amount / cycle.verified);
 
   return {
     config,
@@ -435,8 +510,9 @@ export function buildRepeatedRow(config: string, cycles: readonly CycleResult[])
     inputTokens: statOf(cycles.map((c) => c.summary.inputTokens)),
     outputTokens: statOf(cycles.map((c) => c.summary.outputTokens)),
     retries: statOf(cycles.map((c) => c.summary.retries)),
-    totalUsd: statOf(cycles.map((c) => c.summary.totalUsd)),
-    costPerVerified: statOf(costs),
+    total: unit === null ? null : statOf(comparable.map(({ amount }) => amount)),
+    costPerVerified: unit === null ? null : statOf(costs),
+    unit,
   };
 }
 
@@ -454,8 +530,8 @@ export function renderRepeated(rows: readonly RepeatedRow[]): string {
     fmt(r.inputTokens, (n) => n.toFixed(0)),
     fmt(r.outputTokens, (n) => n.toFixed(0)),
     fmt(r.retries, (n) => n.toFixed(1)),
-    fmt(r.totalUsd, (n) => `$${n.toFixed(4)}`),
-    fmt(r.costPerVerified, (n) => `$${n.toFixed(4)}`),
+    fmt(r.total, (n) => money(n, r.unit ?? 'usd')),
+    fmt(r.costPerVerified, (n) => money(n, r.unit ?? 'usd')),
   ]);
 
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((row) => row[i]!.length)));
@@ -505,8 +581,19 @@ export interface MetricsLine {
   readonly escalations: number;
   /** Absent on lines written before candidate sampling existed. */
   readonly candidates?: number;
-  readonly totalUsd: number;
-  readonly savedUsd: number;
+  /**
+   * Spend, per cost unit.
+   *
+   * Absent on lines written before providers could bill in anything but money;
+   * those carry {@link totalUsd} instead. The file is append-only, so the two
+   * shapes sit side by side in it forever and both have to stay readable — see
+   * {@link toTotals}.
+   */
+  readonly total?: readonly CostTotal[];
+  readonly saved?: readonly CostTotal[];
+  /** Spend in dollars, on lines written before costs carried their unit. */
+  readonly totalUsd?: number;
+  readonly savedUsd?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -555,8 +642,8 @@ export function aggregateMetrics(lines: readonly MetricsLine[]): Row[] {
         retries: l.retries,
         escalations: l.escalations,
         candidates: l.candidates ?? 0,
-        totalUsd: l.totalUsd,
-        savedUsd: l.savedUsd,
+        total: toTotals(l.total, l.totalUsd),
+        saved: toTotals(l.saved, l.savedUsd),
         inputTokens: l.inputTokens,
         outputTokens: l.outputTokens,
         cacheReadTokens: l.cacheReadTokens,

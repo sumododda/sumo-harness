@@ -24,8 +24,8 @@ afterEach(() => {
 test('a stored value comes back under the same key', () => {
   const dir = repo();
   try {
-    cache.write(dir, 'abc123', { output: 'the answer', costUsd: 0.02 });
-    assert.deepEqual(cache.read(dir, 'abc123'), { output: 'the answer', costUsd: 0.02 });
+    cache.write(dir, 'abc123', { output: 'the answer', cost: 0.02 });
+    assert.deepEqual(cache.read(dir, 'abc123'), { output: 'the answer', cost: 0.02 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
