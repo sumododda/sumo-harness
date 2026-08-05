@@ -124,6 +124,21 @@ path to ingredients did not change what the stage is actually asked.
 | C3 | ordinary work sits under the ceilings | ✓ a REPL turn at its bounded worst case ~1,600 tokens, `explore` on this repo ~2,100, against 4,000–12,000 |
 | C4 | a converted workflow stage still fixes a real bug | ✓ `bench --fixtures ts-app-memo` 1/1 at rung 0: evidence → root cause → fix → 3 retries → escalate to mid → tests pass |
 
+## Availability — what this account may actually call
+
+The catalogue says what exists in the world. Only a probe says what exists for
+you, and until this landed only one provider had one.
+
+| # | Claim | Result |
+|---|---|---|
+| A1 | the Claude login's roster can be read at all | ✓ `supportedModels()` over a never-yielding prompt — 933ms, no turn billed |
+| A2 | a variant marker does not lose a model | **✗ the CLI answers `claude-opus-5[1m]` and the catalogue says `claude-opus-5`, so the large tier emptied and routing fell to `claude-fable-5` at twice the price** →✓ stripped before matching |
+| A3 | a dated alias covers its canonical entry | ✓ CLI resolves `haiku` → `claude-haiku-4-5-20251001`; both spellings reachable, `undominated` keeps the short one |
+| A4 | models this account cannot reach are dropped | ✓ 5 of 15 catalogued Anthropic models offered; opus-4.x and sonnet-4.x correctly absent |
+| A5 | routing is unchanged by the probe | ✓ a chat turn still lands on `gpt-5.6-luna`, both providers in the fleet |
+| A6 | a probe that cannot run keeps the old behaviour | ✓ throws rather than returning `[]`, so `usable()` falls back to the catalogue |
+| A7 | a model withdrawn mid-run stops being routed to | · `markUnusable` now called on quota/policy errors; not yet observed live |
+
 ## Web search
 
 `web` has to be worth the same on every provider, so the harness runs the search

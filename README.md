@@ -289,6 +289,22 @@ Naming a provider still means exactly that provider. Routing around one that was
 asked for by name would turn a clear failure into a silent substitution, which is
 the harder of the two to debug.
 
+**What your account can reach is asked, not assumed.** The catalogue says what
+exists in the world; it cannot say what exists for you, and an organisation
+disables a model by policy, a plan gates one by entitlement, and a provider
+withdraws one without warning. So each provider is asked for its own roster and
+the answer is cached for a day — `/models` shows it, and deleting
+`.sumo/models.json` forces a fresh one. A model that disappears is out of the
+routing pool by the next probe without anyone doing anything.
+
+Runtime outranks the probe. A model that refuses at call time — quota reached,
+policy applied between being asked about and being used — is marked unusable for
+the rest of the run, so routing stops choosing it immediately rather than after
+the cache expires. That is also why availability is checked *before* dominance
+pruning: `claude-opus-5` beats `claude-opus-4.6` on price and recency, but if
+opus-5 is disabled then 4.6 was a perfectly good answer, and pruning first would
+have thrown it away in favour of something that cannot be called.
+
 **The advertised context window is not one of those axes**, deliberately. It is
 the one number in the catalogue that looks like a capability and is not: a window
 says what a provider will *accept*, not what a model can attend to, and the two

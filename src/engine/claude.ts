@@ -12,6 +12,8 @@ import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { HookJSONOutput, Options, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import * as features from '../features.ts';
+import { type AvailableModel, markUnusable } from './availability.ts';
+import { modelsFor } from './catalog.ts';
 import { runGit, screenGit } from '../git-tool.ts';
 import type { Capability, Engine, StageRequest } from './types.ts';
 import { type StageResult, SumoError, type Tier } from '../types.ts';
@@ -112,6 +114,55 @@ export function credentialed(): boolean {
   return existsSync(join(home, '.claude.json')) || existsSync(join(home, '.claude'));
 }
 
+/**
+ * How long the roster probe may take before it is treated as unanswerable.
+ *
+ * It spawns the CLI, so it is not instant — measured at about half a second on a
+ * warm machine. The ceiling exists so that a CLI which starts and then hangs
+ * costs a slow first stage rather than a session that never begins.
+ */
+const PROBE_TIMEOUT_MS = 20_000;
+
+/** A `[1m]`-style variant marker. The same model, offered at a different window. */
+const VARIANT_SUFFIX = /\[[^\]]*\]$/;
+
+/**
+ * A prompt that never arrives.
+ *
+ * `supportedModels()` is a control request to a running CLI, so one has to be
+ * started to ask it — but starting it with a real prompt would run a real turn
+ * and bill for it. Streaming input that never yields gets a CLI that connects,
+ * answers the control request, and is closed again without a single token.
+ */
+async function* idle(): AsyncGenerator<never> {
+  await new Promise(() => {
+    // Never resolves. The generator is disposed by `Query.return`.
+  });
+  yield undefined as never;
+}
+
+/**
+ * Whether a model the CLI offers and a model the catalogue lists are the same one.
+ *
+ * Neither side spells them identically. The CLI answers with whatever its alias
+ * resolves to, which is sometimes dated (`claude-haiku-4-5-20251001`) where the
+ * catalogue's canonical entry is not (`claude-haiku-4-5`) — and sometimes the
+ * other way round once a dated alias is published. Comparing for equality would
+ * drop a perfectly reachable model, and dropping one is not a quiet failure: it
+ * empties a tier and routing falls to whatever is left, which at the large tier
+ * meant a model at twice the price.
+ *
+ * The match breaks on a `-` boundary rather than being a bare prefix, so
+ * `claude-opus-4` cannot claim to be `claude-opus-4-6`.
+ */
+export function sameModel(listed: string, catalogued: string): boolean {
+  return (
+    listed === catalogued ||
+    listed.startsWith(`${catalogued}-`) ||
+    catalogued.startsWith(`${listed}-`)
+  );
+}
+
 export class ClaudeEngine implements Engine {
   readonly name = 'claude';
   /** models.dev files these under the vendor's name, not the model family's. */
@@ -145,6 +196,59 @@ export class ClaudeEngine implements Engine {
       messages: [{ role: 'user', content: text }],
     });
     return result.input_tokens;
+  }
+
+  /**
+   * What this login may actually call.
+   *
+   * Asked of the CLI rather than of the REST API, because the CLI login is the
+   * credential most people run this on and it is the one an organisation policy
+   * or a plan change acts on. A bare `models.list` would need
+   * `ANTHROPIC_API_KEY`, which those people do not have, so the probe would
+   * never run for them and the roster would go unchecked for exactly the
+   * accounts most likely to have one imposed on them.
+   *
+   * Throws rather than returning an empty roster when it cannot ask. The two
+   * mean opposite things — "I do not know" against "you may call nothing" — and
+   * `usable()` reads a throw as the first, keeping the last good answer or
+   * trusting the catalogue. Returning `[]` would read as the second and leave
+   * every tier empty.
+   */
+  async availableModels(): Promise<readonly AvailableModel[]> {
+    const listed = await this.offeredModelIds();
+    const reachable = modelsFor(this.catalogName).filter((m) =>
+      listed.some((id) => sameModel(id, m.id)),
+    );
+
+    // The CLI answered, and answered with nothing this catalogue knows. That is
+    // a roster no routing decision can be made from, so it is reported the same
+    // way as not having been able to ask.
+    if (reachable.length === 0) {
+      throw new SumoError(
+        'The Claude CLI offered no model this catalogue knows.',
+        'unknown_roster',
+        [`It offered: ${listed.join(', ') || 'nothing'}`],
+      );
+    }
+
+    return reachable.map((m) => ({ id: m.id, state: 'enabled' as const }));
+  }
+
+  /** The ids the CLI offers, aliases resolved and variant markers stripped. */
+  private async offeredModelIds(): Promise<readonly string[]> {
+    const q = query({ prompt: idle(), options: { settingSources: [], allowedTools: [] } });
+    const timer = new Promise<never>((_, reject) => {
+      // Unreferenced so a probe still running cannot by itself hold the process
+      // open once everything else is done.
+      setTimeout(() => reject(new Error('the Claude CLI did not answer')), PROBE_TIMEOUT_MS).unref();
+    });
+
+    try {
+      const models = await Promise.race([q.supportedModels(), timer]);
+      return [...new Set(models.map((m) => (m.resolvedModel ?? m.value).replace(VARIANT_SUFFIX, '')))];
+    } finally {
+      await q.return(undefined);
+    }
   }
 
   async runStage(req: StageRequest): Promise<StageResult> {
@@ -255,11 +359,17 @@ export class ClaudeEngine implements Engine {
         }
       }
     } catch (cause) {
-      throw new SumoError(
-        `Stage "${req.stage}" failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        'stage_failed',
-        ['Check that ANTHROPIC_API_KEY is set, or run `claude` once to authenticate.'],
-      );
+      const message = cause instanceof Error ? cause.message : String(cause);
+      // A model that refuses at call time outranks any earlier probe: an
+      // organisation can withdraw one, or a plan's limit can be reached, between
+      // the roster being read and the model being used. Recorded for this run
+      // only, so routing stops choosing it without waiting out the probe's day.
+      if (/quota|rate.?limit|policy|entitle|forbidden|not enabled|permission/i.test(message)) {
+        markUnusable(this.name, model);
+      }
+      throw new SumoError(`Stage "${req.stage}" failed: ${message}`, 'stage_failed', [
+        'Check that ANTHROPIC_API_KEY is set, or run `claude` once to authenticate.',
+      ]);
     }
 
     throw new SumoError(
