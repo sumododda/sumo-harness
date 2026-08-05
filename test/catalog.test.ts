@@ -15,9 +15,11 @@ import {
   canSchema,
   catalog,
   lookup,
+  type ModelSpec,
   modelsFor,
   tierOf,
   TIER_CUTS,
+  undominated,
 } from '../src/engine/catalog.ts';
 
 test('the catalogue carries both providers the harness can route to', () => {
@@ -79,6 +81,40 @@ test('unknown schema support counts as no, never as yes', () => {
   assert.equal(canSchema(unknown), false);
   const yes = { structuredOutput: true } as Parameters<typeof canSchema>[0];
   assert.equal(canSchema(yes), true);
+});
+
+test('a larger advertised context window does not make a model preferred', () => {
+  // The advertised window is not an observable fact about capability: RULER and
+  // NoLiMa both find it overstates the usable one badly, and HELMET finds no
+  // single number replaces it. So it must not order models.
+  //
+  // Asserted through `undominated` rather than by inspecting `axes`, and the
+  // distinction matters because `undominated` does two things. These two models
+  // differ only in their window, so with that axis gone neither dominates the
+  // other and *both* clear the dominance filter — they then meet as profile
+  // twins in the dedup, which keeps exactly one by shortest id.
+  //
+  // The larger window deliberately carries the longer id, which is what makes
+  // this discriminating: were the window still an axis, the wide model would
+  // dominate the narrow one outright and win on the strength of its window. It
+  // loses instead, on the tiebreak that applies to models nothing separates.
+  const narrow: ModelSpec = {
+    id: 'test-model',
+    name: 'Test Model',
+    family: 'test',
+    outputPerMtok: 5,
+    inputPerMtok: 1,
+    contextWindow: 128_000,
+    structuredOutput: true,
+    toolCall: true,
+    efforts: ['low', 'high'],
+    releaseDate: '2026-01-01',
+  };
+  const wide: ModelSpec = { ...narrow, id: 'test-model-huge-window', contextWindow: 2_000_000 };
+
+  const survivors = undominated([narrow, wide]);
+  assert.equal(survivors.length, 1, 'identical but for the window, they are twins, not rivals');
+  assert.equal(survivors[0]?.id, 'test-model', 'the wider window must not be what wins');
 });
 
 test('effort support is read per model rather than assumed per tier', () => {

@@ -15,6 +15,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import pc from 'picocolors';
 import type { Fleet } from '../engine/fleet.ts';
+import { assembled } from '../context/budget.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
 import * as features from '../features.ts';
@@ -26,7 +27,7 @@ import type { Ledger } from '../ledger.ts';
 import {
   DISCUSS_STAGE,
   ESCALATION_JUDGE_STAGE,
-  EVIDENCE_STAGE,
+  evidenceParts,
   feedbackBlock,
   FIX_STAGE,
   type ReproOutcome,
@@ -147,7 +148,7 @@ export async function runFix(
     fleet,
     {
       name: 'evidence',
-      prompt: EVIDENCE_STAGE(bug, packContext),
+      ...assembled(evidenceParts(bug, packContext)),
       // Retrieval, not reasoning: effort stays low regardless of the rung.
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],

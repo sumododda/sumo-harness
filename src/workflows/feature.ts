@@ -13,13 +13,14 @@
 
 import pc from 'picocolors';
 import type { Fleet } from '../engine/fleet.ts';
+import { assembled } from '../context/budget.ts';
 import { afterFailure, startAt } from '../escalate.ts';
 import * as failures from '../failures.ts';
 import * as features from '../features.ts';
 import { askApproval, MAX_REVISIONS, producedNothing, rescopeHint } from '../gate.ts';
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
-import { DISCUSS_STAGE, EXPLORE_STAGE, FEATURE_PLAN_STAGE, IMPLEMENT_STAGE, WRITE_TESTS_STAGE } from '../prompts.ts';
+import { DISCUSS_STAGE, exploreParts, FEATURE_PLAN_STAGE, IMPLEMENT_STAGE, WRITE_TESTS_STAGE } from '../prompts.ts';
 import { repoFingerprint } from '../hash.ts';
 import * as runner from '../runner.ts';
 import { declaresNoTests, Explore, jsonSchema, Plan } from '../schemas.ts';
@@ -139,7 +140,7 @@ export async function runFeature(
     fleet,
     {
       name: 'explore',
-      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
+      ...assembled(exploreParts(task, await runner.repoFiles(cwd), packContext)),
       // Retrieval, not reasoning: effort stays low whatever the rung.
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],

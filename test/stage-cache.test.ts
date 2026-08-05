@@ -8,6 +8,7 @@
  */
 
 import assert from 'node:assert/strict';
+import type { Part } from '../src/context/budget.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,6 +123,49 @@ test('a different prompt is a different question', async () => {
     await runStage(Fleet.of(engine), spec(dir), new Ledger());
     await runStage(Fleet.of(engine), spec(dir, { prompt: 'what does applyDiscount do?' }), new Ledger());
     assert.equal(engine.calls, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parts that assemble differently are different questions', async () => {
+  const dir = await repo();
+  const engine = new CountingEngine();
+  try {
+    const ask = (pack: string): Part[] => [
+      { region: 'pack', text: `${pack}\n` },
+      { region: 'task', text: 'what does applyTax do?' },
+    ];
+
+    await runStage(Fleet.of(engine), spec(dir, { parts: ask('rate = 0.1') }), new Ledger());
+    await runStage(Fleet.of(engine), spec(dir, { parts: ask('rate = 0.1') }), new Ledger());
+    assert.equal(engine.calls, 1, 'the same ingredients assemble to the same prompt');
+
+    await runStage(Fleet.of(engine), spec(dir, { parts: ask('rate = 0.25') }), new Ledger());
+    // The key has to describe what actually ran, not what it was built from —
+    // otherwise two genuinely different prompts would share one cached answer.
+    assert.equal(engine.calls, 2, 'different ingredients must not share a key');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assembling a prompt from parts reuses the answer given for the same string', async () => {
+  const dir = await repo();
+  const engine = new CountingEngine();
+  try {
+    // The other half of keying on the assembled text: a prompt built from parts
+    // that fit is byte-identical to the one a caller would have concatenated, so
+    // converting a call path to `parts` invalidates nothing.
+    await runStage(Fleet.of(engine), spec(dir), new Ledger());
+    const asParts: Part[] = [
+      { region: 'task', text: 'what does ' },
+      { region: 'instructions', text: 'applyTax do?' },
+    ];
+    const second = await runStage(Fleet.of(engine), spec(dir, { parts: asParts }), new Ledger());
+
+    assert.equal(engine.calls, 1);
+    assert.equal(second.cached, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

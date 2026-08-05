@@ -6,6 +6,7 @@
  * essentially all the standing instruction a stage gets.
  */
 
+import type { Part } from './context/budget.ts';
 import * as features from './features.ts';
 import { loadProfile } from './profile.ts';
 
@@ -65,19 +66,16 @@ Paths you use must be relative to it, or absolute beneath it.
 ${loadProfile()}${canWrite ? '' : `\n${READ_ONLY}`}`;
 }
 
-export const DO_STAGE = (task: string, context = '') =>
-  `${context}Task: ${task}
-
-Make this change now. Any code shown above was selected for this task by the
+const DO_INSTRUCTIONS = `Make this change now. Any code shown above was selected for this task by the
 repository's index — start there rather than searching for it again.
 Keep the change minimal and match the surrounding code's style. Reuse existing
 helpers rather than adding near-duplicates.
 When done, reply with one line per file changed: <path> — <what changed>.`;
 
-export const CHAT_STAGE = (question: string, context = '') =>
-  `${context}Question: ${question}
+/** `sumo do` builds its prompt in advance; the REPL's `do` goes through {@link singleStageParts}. */
+export const DO_STAGE = (task: string) => `Task: ${task}\n\n${DO_INSTRUCTIONS}`;
 
-Answer from the code above if it is sufficient — it was selected for this
+const CHAT_INSTRUCTIONS = `Answer from the code above if it is sufficient — it was selected for this
 question by the repository's index. Open further files only when it genuinely
 is not enough. Answer directly and briefly, and change nothing. If the answer
 is not in the code, say so rather than guessing.`;
@@ -92,10 +90,7 @@ is not in the code, say so rather than guessing.`;
  * which is what the citation requirement does. An uncited claim from this stage
  * is indistinguishable from one the model simply remembered.
  */
-export const RESEARCH_STAGE = (question: string, context = '') =>
-  `${context}Question: ${question}
-
-Search the web and answer from what you find. Prefer primary sources — the
+const RESEARCH_INSTRUCTIONS = `Search the web and answer from what you find. Prefer primary sources — the
 project's own documentation, repository, or release notes — over articles about
 them, and prefer a page's date over your own sense of what is current.
 
@@ -118,10 +113,8 @@ function skeletonHint(): string {
   return " A skeleton above lists this task's files by signature, no bodies — a\nbody is available by naming its symbol, not by reading the whole file.";
 }
 
-export const EVIDENCE_STAGE = (bug: string, context = '') =>
-  `${context}Reported problem: ${bug}
-
-Gather evidence. Do not fix anything and do not edit any file.
+const evidenceInstructions = () =>
+  `Gather evidence. Do not fix anything and do not edit any file.
 Any code shown above was selected by the repository's index — start from it and
 open further files only when it is not enough.${skeletonHint()} Report what you
 actually observed along the failing path.
@@ -133,6 +126,15 @@ expected to fail right now, against the code as it stands. This is optional:
 leave it null when nothing test-shaped fits, e.g. a UI or manual-only bug —
 forcing one where none applies is worse than proposing none.
 At most three hypotheses, each tied to an observation.`;
+
+/** The evidence stage, split so the index's pack is something the budget can shed. */
+export function evidenceParts(bug: string, pack = ''): readonly Part[] {
+  return [
+    ...(pack ? [{ region: 'pack' as const, text: pack }] : []),
+    { region: 'task', text: `Reported problem: ${bug}\n\n` },
+    { region: 'instructions', text: evidenceInstructions() },
+  ];
+}
 
 /**
  * What became of the repro command the evidence stage proposed.
@@ -211,10 +213,8 @@ ${files.map((f) => `  ${f}`).join('\n')}
  * CLI too" from an earlier turn; it sees the task text and the file listing.
  * That is the right trade for a stage whose job is to describe what exists.
  */
-export const EXPLORE_STAGE = (task: string, files: readonly string[] = [], context = '') =>
-  `${context}${fileListing(files)}Task: ${task}
-
-Investigate before proposing anything. Do not edit any file.
+const exploreInstructions = () =>
+  `Investigate before proposing anything. Do not edit any file.
 Any code shown above was selected by the repository's index — start from it.${skeletonHint()}
 Trust the file listing above over a Glob: Glob answers from dependency
 directories first and truncates, so a file missing from it is not evidence that
@@ -223,6 +223,29 @@ Find what already exists that this should build on: the goal is to extend the
 codebase, not to add a parallel implementation of something already here.
 Name the existing functions to call rather than reimplement, and point at a
 test file that shows how tests are written in this project.`;
+
+/**
+ * The explore stage, split the same way — but note where the file listing lands.
+ *
+ * It goes with the task, not with the droppable context, even though it is
+ * retrieved material and the largest region here. Two reasons, and both are
+ * about what its absence would do rather than what its presence costs: the
+ * instructions below tell the model to trust it *over* a Glob, so dropping it
+ * leaves that sentence pointing at nothing and hands the stage back to the one
+ * tool this harness knows truncates misleadingly. It is already bounded at 400
+ * entries by `runner.repoFiles`, so it cannot be the region that overruns.
+ */
+export function exploreParts(
+  task: string,
+  files: readonly string[] = [],
+  pack = '',
+): readonly Part[] {
+  return [
+    ...(pack ? [{ region: 'pack' as const, text: pack }] : []),
+    { region: 'task', text: `${fileListing(files)}Task: ${task}\n\n` },
+    { region: 'instructions', text: exploreInstructions() },
+  ];
+}
 
 /**
  * Every correction so far, not just the most recent one.
@@ -341,13 +364,45 @@ Answer their question about this proposal. Do not rewrite it and do not produce
 a new version — they have not asked for a change yet. Be brief and concrete, and
 say plainly if the proposal has a weakness they should know about.`;
 
-export const PLAN_STAGE = (task: string, context = '') =>
-  `${context}Task: ${task}
-
-Investigate and propose a plan. Do not change any files.
+const PLAN_INSTRUCTIONS = `Investigate and propose a plan. Do not change any files.
 Reuse existing helpers; do not invent new abstractions unless unavoidable.
 Reply with:
   Approach — two sentences.
   Steps — numbered, each naming the file it touches.
   Reuse — existing functions this should call instead of reimplementing.
   Risks — what could go wrong.`;
+
+/** The REPL modes that run as one stage rather than as a gated workflow. */
+export type SingleStage = 'do' | 'plan' | 'chat' | 'research';
+
+/**
+ * How each of them names the thing it was asked, and what it is told to do
+ * about it. Kept as data so the two halves cannot be assembled in the wrong
+ * order by a caller writing the fifth one.
+ */
+const SINGLE_STAGE: Record<SingleStage, { readonly asks: string; readonly instructions: string }> =
+  {
+    do: { asks: 'Task', instructions: DO_INSTRUCTIONS },
+    plan: { asks: 'Task', instructions: PLAN_INSTRUCTIONS },
+    chat: { asks: 'Question', instructions: CHAT_INSTRUCTIONS },
+    research: { asks: 'Question', instructions: RESEARCH_INSTRUCTIONS },
+  };
+
+/**
+ * A single-stage prompt as its two undroppable halves, for the harness to
+ * assemble behind whatever context fits.
+ *
+ * Split rather than returned whole because the ordering is the point: the
+ * instructions have to end up last, after context the harness may not have
+ * decided on yet, and a caller that concatenated the prompt itself would have to
+ * be trusted to put them there. Handing over the halves makes it structural —
+ * see `context/budget.ts`, which places every region regardless of the order it
+ * received them in.
+ */
+export function singleStageParts(stage: SingleStage, input: string): readonly Part[] {
+  const { asks, instructions } = SINGLE_STAGE[stage];
+  return [
+    { region: 'task', text: `${asks}: ${input}\n\n` },
+    { region: 'instructions', text: instructions },
+  ];
+}

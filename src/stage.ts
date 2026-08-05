@@ -7,9 +7,11 @@
 
 import pc from 'picocolors';
 import * as cache from './cache.ts';
+import { workOf } from './engine/aptitude.ts';
 import type { Capability } from './engine/index.ts';
 import { Fleet } from './engine/fleet.ts';
 import type { EventSink } from './engine/types.ts';
+import { budgetFor, fit, type Part } from './context/budget.ts';
 import type { Progress } from './progress.ts';
 import type { Steering } from './steer.ts';
 import * as features from './features.ts';
@@ -24,6 +26,20 @@ import { describeRung, type Rung, type StageResult } from './types.ts';
 export interface StageSpec {
   readonly name: string;
   readonly prompt: string;
+  /**
+   * The prompt's ingredients, when the caller wants it assembled against the
+   * routed model's budget rather than built in advance.
+   *
+   * Assembly has to happen after routing or the budget is unknowable: a stage
+   * that lands on a small model would otherwise receive a prompt sized for a
+   * large one, which is precisely the case where it hurts most — ACON finds
+   * compressing the context helps small models by up to 46%, because they are
+   * the ones that get distracted by the surplus.
+   *
+   * Additive. `prompt` stays required and keeps working exactly as before; when
+   * `parts` is present it is what actually runs.
+   */
+  readonly parts?: readonly Part[];
   readonly rung: Rung;
   readonly capabilities: readonly Capability[];
   readonly cwd: string;
@@ -74,6 +90,19 @@ export interface StageSpec {
 }
 
 const DEFAULT_TURNS = 20;
+
+/**
+ * The window assumed when routing lands on a model the catalogue cannot
+ * describe — a Copilot plan offering only `auto`, say.
+ *
+ * Set to the smallest window any catalogued model actually has rather than to a
+ * cautious guess, because the window is only ever a cap here and every ceiling
+ * in `context/budget.ts` is an order of magnitude below half of this. So this
+ * number does not decide anything; it simply declines to invent a *lower* limit
+ * for an unknown model than the known ones have, which would starve a blind
+ * provider's stages on no evidence at all.
+ */
+const FALLBACK_WINDOW = 128_000;
 
 /**
  * There is no default spending cap on a stage, deliberately.
@@ -127,10 +156,22 @@ export async function runStage(
     );
   }
 
+  // Assembled here rather than by the caller, because this is the first point at
+  // which the budget is knowable — the model was chosen four lines ago.
+  const budget = budgetFor(workOf(spec.name), routedModel?.contextWindow ?? FALLBACK_WINDOW);
+  const assembled = spec.parts ? fit(spec.parts, budget) : null;
+  if (assembled && assembled.dropped.length > 0) {
+    // Said out loud, always. A prompt quietly shortened is indistinguishable
+    // from one that was never that long, which is the failure this whole
+    // mechanism exists to prevent rather than to commit more neatly.
+    process.stderr.write(pc.dim(`  context over budget — dropped ${assembled.dropped.join(', ')}\n`));
+  }
+
   // Picked up before the key is built, so a steered stage is a different
   // question and can never be answered from the cache by an unsteered one.
   const steered = spec.steer?.takeAsPrompt() ?? '';
-  const prompt = steered ? `${spec.prompt}\n${steered}` : spec.prompt;
+  const base = assembled?.text ?? spec.prompt;
+  const prompt = steered ? `${base}\n${steered}` : base;
 
   const system = systemPrompt(spec.cwd, allowWrites);
   const composition = {

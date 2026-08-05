@@ -120,11 +120,22 @@ export function candidates(provider: string, tier: Tier): readonly ModelSpec[] {
  * Deliberately short. Everything here is a fact the catalogue records, and
  * nothing here is a quality claim — there is no benchmark score in the data and
  * no free source of one, so a comparison that needed it would be invented.
+ *
+ * The context window is the one number the catalogue records that is *not* such
+ * a fact, which is why it is not here. An advertised window says what a provider
+ * will accept, not what the model can attend to, and the two come apart badly:
+ * RULER finds only half of the models claiming 32K still hold up at 32K, and
+ * NoLiMa finds eleven of thirteen models claiming 128K fall below half their own
+ * short-context score by 32K. Nor is there a better constant to substitute —
+ * HELMET finds the task categories correlate too poorly for one number to stand
+ * in for the rest. So an axis reading `m.contextWindow` would rank models by a
+ * marketing figure and call it an observation. The window survives as catalogue
+ * data, and `context/budget.ts` reads it as a cap; it just does not order
+ * anything.
  */
-function axes(m: ModelSpec): readonly [number, number, number, number] {
+function axes(m: ModelSpec): readonly [number, number, number] {
   return [
     -m.outputPerMtok, // cheaper is better
-    m.contextWindow,
     m.structuredOutput === true ? 1 : 0,
     m.efforts.length, // more control is better, or at least never worse
   ];

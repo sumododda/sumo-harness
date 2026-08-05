@@ -25,7 +25,8 @@ import {
 } from './intent.ts';
 import { Ledger } from './ledger.ts';
 import { estimateTokens, loadProfile, PROFILE_PATH, remember } from './profile.ts';
-import { CHAT_STAGE, DO_STAGE, PLAN_STAGE, RESEARCH_STAGE } from './prompts.ts';
+import { type SingleStage, singleStageParts } from './prompts.ts';
+import { assembled, type Part } from './context/budget.ts';
 import { Progress, roadmap } from './progress.ts';
 import { shouldRetrieve } from './retrieval.ts';
 import * as routingLog from './routing-log.ts';
@@ -260,18 +261,19 @@ async function handleTurn(input: string, deps: TurnDeps, once?: Mode): Promise<v
   });
 
   conversation.add('user', input);
-  const context = conversation.contextBlock();
 
-  // These are staged workflows with approval gates, not single stages.
+  // These are staged workflows with approval gates, not single stages. They
+  // still build their own prompts, so they take the session as one finished
+  // block rather than as parts for the harness to fit.
   if (intent.mode === 'fix' || intent.mode === 'feature' || intent.mode === 'plan') {
-    await runWorkflowTurn(intent.mode, input, intent.rung, context, deps);
+    await runWorkflowTurn(intent.mode, input, intent.rung, conversation.contextBlock(), deps);
     return;
   }
 
   // Ask the index first. What it returns costs nothing and usually spares the
   // model several rounds of reading its way to the same files.
   const pack = await packFor(deps, input, intent);
-  const spec = specFor(intent.mode, input, contextWithPack(context, pack), repo.root);
+  const spec = specFor(intent.mode, input, contextWithPack(conversation.parts(), pack), repo.root);
 
   try {
     const mark = ledger.mark();
@@ -598,16 +600,32 @@ async function decideIntent(input: string, deps: TurnDeps, once?: Mode): Promise
   }
 }
 
-/** Maps a mode to the stage that implements it. */
-function specFor(mode: Mode, input: string, context: string, cwd: string) {
-  const base = { cwd, rung: rungAt(0), maxTurns: 24 };
+/**
+ * Maps a mode to the stage that implements it.
+ *
+ * Hands the harness its ingredients rather than a finished prompt. The stage
+ * runner assembles them once it knows which model is running the stage, which is
+ * the only point at which how much context is affordable is a knowable thing —
+ * see `context/budget.ts`.
+ *
+ * `prompt` is still supplied, and is the same parts rendered with nothing
+ * dropped. It is what would run if the budget never bound, which on the current
+ * catalogue is what happens: the two are the same string until a session grows
+ * large enough for one of them not to be.
+ */
+function specFor(mode: Mode, input: string, context: readonly Part[], cwd: string) {
+  const spec = (stage: SingleStage) => ({
+    cwd,
+    rung: rungAt(0),
+    maxTurns: 24,
+    ...assembled([...context, ...singleStageParts(stage, input)]),
+  });
 
   switch (mode) {
     case 'do':
       return {
-        ...base,
+        ...spec('do'),
         name: 'do',
-        prompt: DO_STAGE(input, context),
         // `git` is a narrow, screened tool — branch and history only. See
         // src/git-tool.ts for exactly what it refuses.
         capabilities: ['read', 'search', 'edit', 'git'] as const,
@@ -619,25 +637,22 @@ function specFor(mode: Mode, input: string, context: string, cwd: string) {
       // Until the staged workflows land, these investigate and propose without
       // touching anything — never silently downgraded to a blind edit.
       return {
-        ...base,
+        ...spec('plan'),
         name: mode,
-        prompt: PLAN_STAGE(input, context),
         capabilities: ['read', 'search'] as const,
         allowWrites: false,
       };
     case 'chat':
       return {
-        ...base,
+        ...spec('chat'),
         name: 'chat',
-        prompt: CHAT_STAGE(input, context),
         capabilities: ['read', 'search'] as const,
         allowWrites: false,
       };
     case 'research':
       return {
-        ...base,
+        ...spec('research'),
         name: 'research',
-        prompt: RESEARCH_STAGE(input, context),
         // `read` and `search` stay: a question about a library is usually also
         // a question about how this repo already uses it.
         capabilities: ['read', 'search', 'web'] as const,
@@ -993,10 +1008,16 @@ async function packFor(
   return value;
 }
 
-/** Prepends the index's answer so the model starts with the relevant code. */
-function contextWithPack(conversation: string, pack: string): string {
+/**
+ * Adds the index's answer to what the session already contributes.
+ *
+ * Returned as a part rather than concatenated on, so the pack is something the
+ * budget can shed. It is the largest droppable region and the one most likely to
+ * grow — which is the whole reason it is worth being able to drop.
+ */
+function contextWithPack(conversation: readonly Part[], pack: string): readonly Part[] {
   if (!pack) return conversation;
-  return `${conversation}${packBlock(pack)}`;
+  return [...conversation, { region: 'pack', text: packBlock(pack) }];
 }
 
 /**

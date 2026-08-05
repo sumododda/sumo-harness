@@ -11,6 +11,7 @@
 
 import pc from 'picocolors';
 import type { Fleet } from '../engine/fleet.ts';
+import { assembled } from '../context/budget.ts';
 import {
   askApproval,
   type GateDecision,
@@ -20,7 +21,7 @@ import {
 } from '../gate.ts';
 import type { LineReader } from '../input.ts';
 import type { Ledger } from '../ledger.ts';
-import { DISCUSS_STAGE, EXPLORE_STAGE, FEATURE_PLAN_STAGE } from '../prompts.ts';
+import { DISCUSS_STAGE, exploreParts, FEATURE_PLAN_STAGE } from '../prompts.ts';
 import { repoFingerprint } from '../hash.ts';
 import * as runner from '../runner.ts';
 import { declaresNoTests, Explore, jsonSchema, Plan } from '../schemas.ts';
@@ -92,7 +93,7 @@ export async function runPlan(
     fleet,
     {
       name: 'explore',
-      prompt: EXPLORE_STAGE(task, await runner.repoFiles(cwd), packContext),
+      ...assembled(exploreParts(task, await runner.repoFiles(cwd), packContext)),
       rung: { tier: rung.tier === 'small' ? 'small' : 'mid', effort: 'low' },
       capabilities: ['read', 'search'],
       cwd,
