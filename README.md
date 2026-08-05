@@ -540,9 +540,14 @@ npm run build         # emit dist/, the form a published copy ships
 ```
 
 `npm run build` is wired to `prepare`, so it also runs on `npm pack`, on
-`npm publish`, and when someone installs straight from the repository. Editing
-after `npm link` needs no build at all: the link resolves to the working tree,
-where Node reads the TypeScript directly.
+`npm publish`, and when someone installs straight from the repository.
+
+Editing after `npm link` needs no build. `bin/sumo.js` runs `src/` when it is
+there and `dist/` when it is not, and `src/` is absent from the published
+package — so the check is the question rather than a setting to keep in sync.
+That sentence was briefly untrue: the binary pointed straight at `dist/`, so a
+linked checkout silently ran whatever was last built, and the only symptom was
+behaviour quietly out of date.
 
 ## Tests
 

@@ -36,10 +36,11 @@ export default defineConfig(
     languageOptions: {
       globals: { ...globals.node },
       parserOptions: {
-        // This file is not in tsconfig's `include` (it is JS, and typechecking
-        // it would drag ESLint's own types into the build), so it is typed
-        // against the default project instead.
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        // Neither of these is in tsconfig's `include`. This one is JS because
+        // typechecking it would drag ESLint's own types into the build;
+        // `bin/sumo.js` is JS because it is the entry point that decides
+        // whether to load TypeScript at all, so it cannot be TypeScript.
+        projectService: { allowDefaultProject: ['eslint.config.js', 'bin/sumo.js'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

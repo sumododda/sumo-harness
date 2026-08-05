@@ -17,12 +17,13 @@
   },
   "type": "module",
   "bin": {
-    "sumo": "./dist/cli.js"
+    "sumo": "./bin/sumo.js"
   },
   "engines": {
     "node": ">=24"
   },
   "files": [
+    "bin",
     "dist",
     "model",
     "README.md",
