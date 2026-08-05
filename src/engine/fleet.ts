@@ -154,10 +154,11 @@ export class Fleet {
    * away in favour of something that cannot be called.
    */
   async for(need: StageNeed): Promise<Routed> {
-    // A guarantee wherever one exists, an attempt only when none does. Falling
-    // back rather than throwing is what makes a Copilot-only fleet able to run
-    // a staged workflow at all; putting the fallback *below* the guarantee is
-    // what stops a mixed fleet from ever choosing the weaker promise.
+    // A guarantee wherever one exists, an attempt when none does — and, further
+    // down, when the one that does turns out to have nothing for this stage.
+    // Falling back rather than throwing is what makes a Copilot-only fleet able
+    // to run a staged workflow at all; putting the fallback *below* the guarantee
+    // is what stops a mixed fleet from ever choosing the weaker promise.
     const guaranteed = this.engines.filter((e) => e.supportsOutputSchema);
     const attempting = this.engines.filter((e) => e.attemptsOutputSchema === true);
 
@@ -181,18 +182,26 @@ export class Fleet {
       );
     }
 
-    // One pool, not one provider at a time. A model is a model; which account
-    // happens to serve it is an implementation detail of reaching it, and
-    // picking a provider first would settle the important question — which
-    // model — as a side effect of the unimportant one.
-    const pool: Offer[] = [];
-    /** Engines offering something the catalogue cannot describe. See {@link offersFrom}. */
-    const blind: Engine[] = [];
+    let { pool, blind } = await this.gather(capableEngines, need, requireSchemaModels);
 
-    for (const engine of capableEngines) {
-      const offers = await this.offersFrom(engine, need, requireSchemaModels);
-      if (offers === null) blind.push(engine);
-      else pool.push(...offers);
+    // A guarantee is only worth preferring over an attempt if the guaranteeing
+    // account actually offers something that can run *this* stage. Deciding that
+    // per fleet rather than per stage left a dead end that nothing could route
+    // out of: the `evidence` stage asks for a small model at low effort, the
+    // only small Anthropic model takes no effort setting at all, and because
+    // Anthropic is the sole provider promising a schema, every Copilot model
+    // that could have answered was already out of the pool before effort was
+    // considered. `sumo bench` could not run a single fixture at its default
+    // rung — not on a fleet missing a credential, but on a fully configured one.
+    //
+    // So the fallback moves to where the emptiness is known. Nothing that routes
+    // today changes: this is reached only where the alternative was to throw.
+    if (pool.length === 0 && blind.length === 0 && requireSchemaModels) {
+      const rest = attempting.filter((e) => !capableEngines.includes(e));
+      // Model-level schema support goes unchecked here for the same reason it is
+      // skipped when an attempting provider is alone — it has no guarantee to
+      // check, and holding it to one filters away everything it has.
+      if (rest.length > 0) ({ pool, blind } = await this.gather(rest, need, false));
     }
 
     const preferred = this.policy[need.tier];
@@ -253,6 +262,32 @@ export class Fleet {
         'this stage needs. Check `/routing` for what each provider reported.',
       ],
     );
+  }
+
+  /**
+   * Every model these engines could run this stage with.
+   *
+   * One pool, not one provider at a time. A model is a model; which account
+   * happens to serve it is an implementation detail of reaching it, and picking
+   * a provider first would settle the important question — which model — as a
+   * side effect of the unimportant one.
+   */
+  private async gather(
+    engines: readonly Engine[],
+    need: StageNeed,
+    requireSchemaModels: boolean,
+  ): Promise<{ pool: Offer[]; blind: Engine[] }> {
+    const pool: Offer[] = [];
+    /** Engines offering something the catalogue cannot describe. See {@link offersFrom}. */
+    const blind: Engine[] = [];
+
+    for (const engine of engines) {
+      const offers = await this.offersFrom(engine, need, requireSchemaModels);
+      if (offers === null) blind.push(engine);
+      else pool.push(...offers);
+    }
+
+    return { pool, blind };
   }
 
   /**

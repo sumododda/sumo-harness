@@ -483,6 +483,73 @@ test('an attempt never wins a schema stage while a guarantee is in the fleet', a
   }
 });
 
+test('a guarantee that offers nothing for this stage gives way to an attempt', async () => {
+  // The dead end this fixes, reproduced with the real catalogue. `evidence` asks
+  // for a small model at low effort; Anthropic's only small model takes no
+  // effort setting at all, so it offers nothing — and while the fallback was
+  // decided per fleet rather than per stage, being the sole provider promising a
+  // schema was enough to put every Copilot model out of the pool first. Nothing
+  // could route, on a fully configured fleet.
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const fleet = new Fleet(
+      [
+        engine('anthropic', { schema: true, models: [{ id: 'claude-haiku-4-5', state: 'enabled' }] }),
+        engine('github-copilot', {
+          schema: false,
+          attempts: true,
+          models: [{ id: 'gpt-5.6-luna', state: 'enabled' }],
+        }),
+      ],
+      {},
+      dir,
+    );
+
+    const routed = await fleet.for({
+      tier: 'small',
+      effort: 'low',
+      needsSchema: true,
+      capabilities: [],
+    });
+    assert.equal(routed.engine.name, 'github-copilot');
+    assert.equal(routed.model?.id, 'gpt-5.6-luna');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the guarantee still wins wherever it has something to offer', async () => {
+  // The other half of the same change: the fallback is reached only where the
+  // alternative was to throw, so a tier Anthropic can serve is still Anthropic's.
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const fleet = new Fleet(
+      [
+        engine('anthropic', { schema: true, models: [{ id: 'claude-sonnet-5', state: 'enabled' }] }),
+        engine('github-copilot', {
+          schema: false,
+          attempts: true,
+          models: [{ id: 'gpt-5.6-terra', state: 'enabled' }],
+        }),
+      ],
+      {},
+      dir,
+    );
+
+    const routed = await fleet.for({
+      tier: 'mid',
+      effort: 'low',
+      needsSchema: true,
+      capabilities: [],
+    });
+    assert.equal(routed.engine.name, 'anthropic');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a stage needing no schema still reaches a provider that cannot guarantee one', async () => {
   const dir = scratch();
   try {
