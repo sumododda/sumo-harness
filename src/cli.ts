@@ -108,7 +108,12 @@ program
   .argument('[action]', 'off or on, to change one')
   .argument('[model]', 'the model id, or provider/id when both carry it')
   .option('--provider <name>', 'limit to one provider')
-  .action(async (action: string | undefined, model: string | undefined, opts: { provider?: string }) => {
+  .option('--list', 'print the table instead of opening the editor')
+  .action(async (
+    action: string | undefined,
+    model: string | undefined,
+    opts: { provider?: string; list?: boolean },
+  ) => {
     if (action !== undefined && action !== 'on' && action !== 'off') {
       throw new SumoError(`Unknown action "${action}".`, 'unknown_action', [
         'Use `sumo models`, `sumo models off <id>`, or `sumo models on <id>`.',
@@ -118,6 +123,7 @@ program
       ...(action ? { action } : {}),
       ...(model !== undefined ? { target: model } : {}),
       ...(providerOf(opts) !== undefined ? { provider: providerOf(opts)! } : {}),
+      ...(opts.list ? { list: true } : {}),
     });
   });
 

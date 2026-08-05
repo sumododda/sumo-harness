@@ -20,6 +20,7 @@ import { Fleet } from '../src/engine/fleet.ts';
 import { disabledModels, disabledPath, isDisabled, turnOff, turnOn } from '../src/engine/preferences.ts';
 import type { Engine } from '../src/engine/types.ts';
 import { switchModel } from '../src/models.ts';
+import { PickerState } from '../src/models-picker.ts';
 
 let home = '';
 let previous: string | undefined;
@@ -131,4 +132,107 @@ test('a model is looked up under the catalogue name, not the display name', () =
   const engines = [engine('claude', 'anthropic')];
   switchModel(engines, 'off', 'claude-opus-5');
   assert.equal(isDisabled('claude', 'claude-opus-5'), true);
+});
+
+// ------------------------------------------------------------------ the editor
+
+test('the cursor starts on a model, not on a heading', () => {
+  const state = new PickerState([engine('claude', 'anthropic')], scratch(), new Set());
+  assert.equal(state.lines[state.focus]?.kind, 'model');
+});
+
+test('moving skips headings and unavailable models', () => {
+  const dir = scratch();
+  try {
+    const state = new PickerState([engine('claude', 'anthropic')], dir, new Set());
+    // Walk the whole list; every landing has to be a togglable model, or the
+    // cursor would stop on a row where space does nothing.
+    for (let i = 0; i < 60; i += 1) {
+      state.move(1);
+      const line = state.lines[state.focus];
+      assert.equal(line?.kind, 'model', 'the cursor landed on a heading');
+      assert.equal(line?.blocked ?? null, null, 'the cursor landed on an unavailable model');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('moving past either end stays put rather than wrapping', () => {
+  const state = new PickerState([engine('claude', 'anthropic')], scratch(), new Set());
+  const first = state.focus;
+  state.move(-1);
+  assert.equal(state.focus, first, 'moved above the first model');
+
+  for (let i = 0; i < 200; i += 1) state.move(1);
+  const last = state.focus;
+  state.move(1);
+  assert.equal(state.focus, last, 'moved past the last model');
+});
+
+test('nothing is written until the draft is saved', () => {
+  const state = new PickerState([engine('claude', 'anthropic')], scratch(), new Set());
+  const key = state.lines[state.focus]?.key ?? '';
+
+  state.toggle();
+  assert.equal(state.pending, 1);
+  assert.equal(disabledModels().size, 0, 'a toggle reached disk before save');
+
+  state.save();
+  assert.equal(disabledModels().has(key), true);
+});
+
+test('toggling twice is a draft with nothing in it', () => {
+  const state = new PickerState([engine('claude', 'anthropic')], scratch(), new Set());
+  state.toggle();
+  state.toggle();
+  assert.equal(state.pending, 0);
+
+  const changes = state.save();
+  assert.deepEqual(changes, { turnedOff: [], turnedOn: [] });
+  assert.equal(disabledModels().size, 0);
+});
+
+test('a save reports both directions', () => {
+  const dir = scratch();
+  try {
+    turnOff('claude', 'claude-opus-5');
+    const state = new PickerState([engine('claude', 'anthropic')], dir, disabledModels());
+
+    // Turn the already-off one back on, and turn a different one off.
+    const opus = state.lines.findIndex((l) => l.key === 'claude:claude-opus-5');
+    state.focus = opus;
+    state.toggle();
+
+    const haiku = state.lines.findIndex((l) => l.key === 'claude:claude-haiku-4-5');
+    state.focus = haiku;
+    state.toggle();
+
+    const changes = state.save();
+    assert.deepEqual(changes.turnedOn, ['claude:claude-opus-5']);
+    assert.deepEqual(changes.turnedOff, ['claude:claude-haiku-4-5']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('turning off the winner promotes the next model at that tier', () => {
+  const dir = scratch();
+  try {
+    const state = new PickerState([engine('claude', 'anthropic')], dir, new Set());
+    const winner = state.lines.find((l) => l.kind === 'model' && l.dominated === false);
+    assert.ok(winner?.key, 'no undominated model to begin with');
+
+    state.focus = state.lines.findIndex((l) => l.key === winner.key);
+    state.toggle();
+
+    // The list is rebuilt on toggle, so something else has to be undominated
+    // now — that shift is the whole reason to watch this screen.
+    const promoted = state.lines.find(
+      (l) => l.kind === 'model' && !l.blocked && !l.dominated && l.key !== winner.key,
+    );
+    assert.ok(promoted, 'nothing took over the tier');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

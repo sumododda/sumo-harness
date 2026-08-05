@@ -64,6 +64,8 @@ const TICK_MS = 80;
 const QUIET_MS = 200;
 
 let enabled = false;
+/** Process-level exit handlers are registered once, however often the region restarts. */
+let handlersInstalled = false;
 let timer: NodeJS.Timeout | undefined;
 let frame = 0;
 
@@ -287,16 +289,25 @@ export function enable(where: string): boolean {
   timer.unref();
 
   process.stdout.on('resize', draw);
-  process.once('exit', disable);
-  // Only reached when the line editor is not in raw mode — with it, readline
-  // intercepts Ctrl-C itself and no process signal is raised. Both paths need
-  // covering: a default-terminated process runs no `exit` handler, so without
-  // this the terminal would be left with the region still on it.
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, () => {
-      disable();
-      process.exit(signal === 'SIGINT' ? 130 : 143);
-    });
+
+  // Registered once for the life of the process, not once per enable. The
+  // region is now suspended and restarted mid-session — `/models` hands the
+  // terminal to the model editor and takes it back — and a fresh `once`
+  // handler per cycle piles up until Node warns about a listener leak, at
+  // which point the warning prints into the very region it is about.
+  if (!handlersInstalled) {
+    handlersInstalled = true;
+    process.once('exit', disable);
+    // Only reached when the line editor is not in raw mode — with it, readline
+    // intercepts Ctrl-C itself and no process signal is raised. Both paths need
+    // covering: a default-terminated process runs no `exit` handler, so without
+    // this the terminal would be left with the region still on it.
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        disable();
+        process.exit(signal === 'SIGINT' ? 130 : 143);
+      });
+    }
   }
 
   return true;

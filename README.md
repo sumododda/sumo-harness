@@ -316,8 +316,19 @@ chosen, because something else at the same tier beats it on every axis. That is
 the one people ask about, and it used to be unanswerable without reading the
 code. `⊘` is yours.
 
-`sumo models off gpt-4.1` turns one off, `sumo models on` puts it back, and
-`/models` does both mid-session. A bare id switches the model on every provider
+**`sumo models` opens an editor**; `/models` opens the same one mid-session.
+Arrow keys move, space toggles, enter saves, esc abandons. Nothing reaches disk
+until you save, which is the point rather than a detail: toggling something to
+see what it does costs nothing, where a command that takes effect immediately
+makes every keystroke a commitment. The `beaten at this tier` markers move as
+you go, so turning off whatever is winning a tier shows you what takes over
+before you commit to it — and the save says what each tier routes at now.
+
+`sumo models --list` prints the table instead, and a pipe gets the table
+automatically, since arrow keys need a terminal to come from.
+
+For one model there is still a one-liner: `sumo models off gpt-4.1`,
+`sumo models on gpt-4.1`, or the same after `/models`. A bare id switches the model on every provider
 carrying it — the same weights are often reachable through two accounts, and
 turning it off on one while it quietly keeps running on the other is the least
 useful thing the command could do; `provider/id` names one exactly. The choices

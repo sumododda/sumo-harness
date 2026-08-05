@@ -12,7 +12,7 @@ import * as cache from './cache.ts';
 import { Conversation } from './conversation.ts';
 import { getFleetEngines } from './engine/index.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
-import { listModels, switchModel } from './models.ts';
+import { editModels, listModels, switchModel } from './models.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
 import { routeLocally } from './route/local.ts';
 import {
@@ -28,6 +28,7 @@ import { Ledger } from './ledger.ts';
 import { estimateTokens, loadProfile, PROFILE_PATH, remember } from './profile.ts';
 import { type SingleStage, singleStageParts } from './prompts.ts';
 import { assembled, type Part } from './context/budget.ts';
+import * as websearch from './websearch.ts';
 import { Progress, roadmap } from './progress.ts';
 import { shouldRetrieve } from './retrieval.ts';
 import * as routingLog from './routing-log.ts';
@@ -192,7 +193,11 @@ export async function repl(providerName?: string): Promise<number> {
         if (typeof outcome === 'object') {
           if ('setTestCommand' in outcome) testCommand = outcome.setTestCommand;
           else if ('runShell' in outcome) await runUserCommand(outcome.runShell, repo.root);
-          else if ('models' in outcome) await showModels(outcome.models, fleet, repo.root);
+          else if ('models' in outcome)
+            await showModels(outcome.models, fleet, repo.root, {
+              pause: () => rl.pause(),
+              resume: () => rl.resume(),
+            });
           else if ('resumeGate' in outcome) await working(() => handleResumeGate(outcome.resumeGate, deps));
           else await working(() => handleTurn(outcome.run, deps, outcome.once));
         }
@@ -275,7 +280,21 @@ async function handleTurn(input: string, deps: TurnDeps, once?: Mode): Promise<v
   // Ask the index first. What it returns costs nothing and usually spares the
   // model several rounds of reading its way to the same files.
   const pack = await packFor(deps, input, intent);
-  const spec = specFor(intent.mode, input, contextWithPack(conversation.parts(), pack), repo.root);
+
+  // And the web, for the one mode whose answer is not in the repository. Run
+  // here rather than left to the model for the same reason the index is: the
+  // search is deterministic, so a turn spent deciding to do it is a turn wasted.
+  // Null whenever the harness cannot search — no `ddgr`, no network — and the
+  // stage then behaves exactly as it did before, with the provider's own tools.
+  const found = intent.mode === 'research' ? await websearch.search(input) : null;
+  if (found) process.stdout.write(pc.dim(`  ${String(found.length)} web results\n`));
+
+  const spec = specFor(
+    intent.mode,
+    input,
+    withWeb(contextWithPack(conversation.parts(), pack), found),
+    repo.root,
+  );
 
   try {
     const mark = ledger.mark();
@@ -561,6 +580,8 @@ async function showModels(
   request: { readonly action?: 'on' | 'off'; readonly target?: string },
   fleet: Fleet,
   root: string,
+  /** Lets go of stdin while the editor owns it, and takes it back after. */
+  hand: { readonly pause: () => void; readonly resume: () => void },
 ): Promise<void> {
   try {
     if (request.action) {
@@ -573,7 +594,22 @@ async function showModels(
       process.stdout.write(`${switchModel(fleet.members, request.action, request.target)}\n\n`);
       return;
     }
-    process.stdout.write(`${await listModels(fleet, fleet.members, root)}\n\n`);
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      process.stdout.write(`${await listModels(fleet, fleet.members, root)}\n\n`);
+      return;
+    }
+
+    // The editor reads arrow keys straight off stdin, so the line editor and
+    // the live region both have to let go of the terminal first — and get it
+    // back afterwards, whether the editor saved or was abandoned.
+    statusbar.disable();
+    const said = await editModels(fleet, fleet.members, root, {
+      pause: () => hand.pause(),
+      resume: () => hand.resume(),
+    });
+    statusbar.enable(basename(root));
+
+    process.stdout.write(`${said}\n\n`);
   } catch (err) {
     if (err instanceof SumoError) {
       process.stdout.write(`${ui.error(err.message, err.suggestions)}\n\n`);
@@ -1066,6 +1102,19 @@ async function packFor(
  * budget can shed. It is the largest droppable region and the one most likely to
  * grow — which is the whole reason it is worth being able to drop.
  */
+/**
+ * Adds the harness's own web search results, when it managed to run one.
+ *
+ * Shares the `pack` region with the index rather than earning one of its own:
+ * both are retrieved material, both are ranked by whatever fetched them, and
+ * both are the first thing worth dropping when a prompt will not fit. Where they
+ * came from is a property of the block's own heading, not of its priority.
+ */
+function withWeb(parts: readonly Part[], results: readonly websearch.Result[] | null): readonly Part[] {
+  if (!results) return parts;
+  return [...parts, { region: 'pack', text: websearch.resultsBlock(results) }];
+}
+
 function contextWithPack(conversation: readonly Part[], pack: string): readonly Part[] {
   if (!pack) return conversation;
   return [...conversation, { region: 'pack', text: packBlock(pack) }];

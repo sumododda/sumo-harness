@@ -89,6 +89,11 @@ every one of these passed its own tests while being wrong in a live session.
 | P10 | `sumo models` lists every model with its state | ✓ live, both providers |
 | P11 | turning a model off changes what routing picks | ✓ small tier moved `gpt-5.6-luna` → `gpt-5-mini` |
 | P12 | `--provider` on a subcommand | **✗ commander resolved it to the program, so the flag did nothing on `do`, `bench` and `models`** →✓ |
+| P13 | the editor opens and waits for a key | **✗ the Enter that ran the command was still buffered and saved an empty draft instantly** →✓ flushed first |
+| P14 | `sumo models` exits when the editor closes | **✗ stdin left resumed, so it printed its summary and hung** →✓ |
+| P15 | the editor renders on a terminal reporting no size | **✗ `0 ?? 80` is 0, so every row truncated to one ellipsis** →✓ |
+| P16 | `/models` in a session, then the session continues | ✓ driven through a pty: move, toggle, save, REPL alive |
+| P17 | the live region survives being handed the terminal back | **✗ `enable()` re-registered exit handlers each time** →✓ once per process |
 | P10 | a schema stage routes at the default rung on a mixed fleet | **✗ `No usable model for a small stage` — the guarantee was preferred per fleet, so `evidence` asking small+low effort had every Copilot model removed before Anthropic's effort-less small model turned out to offer nothing** →✓ judged per stage; `bench --fixtures ts-app-memo` now runs 1/1 at rung 0 where it previously failed to route at all |
 | P12 | one task bills both providers | ✓ `17.00 cr + $0.1046` on a single fixture — Copilot credits and Anthropic dollars kept apart in the ledger rather than summed |
 | P13 | `sumo bench` exits when its last task finishes | **✗ the Copilot headless process outlives the run and holds the pipe open** — results are complete and correct, the process just does not return |

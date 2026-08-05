@@ -21,6 +21,7 @@ import type { ModelSpec } from './engine/catalog.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { getFleetEngines } from './engine/index.ts';
 import { disabledModels, disabledPath, turnOff, turnOn } from './engine/preferences.ts';
+import { pickModels, type PickerHooks } from './models-picker.ts';
 import type { Engine } from './engine/types.ts';
 import { SumoError, type Tier } from './types.ts';
 
@@ -207,6 +208,23 @@ export async function listModels(
   return renderModels(engines, root, await routedPerTier(fleet));
 }
 
+/**
+ * The editor, and the sentence describing what it did.
+ *
+ * Wrapped here rather than in the REPL so both entry points get the same
+ * before-and-after: the caller only has to hand over the terminal.
+ */
+export async function editModels(
+  fleet: Fleet,
+  engines: readonly Engine[],
+  root: string,
+  hooks: PickerHooks = {},
+): Promise<string> {
+  const changes = await pickModels(engines, root, hooks);
+  if (!changes) return pc.dim('  unchanged');
+  return renderSaved(changes, await routedPerTier(fleet));
+}
+
 /** Turns a model off or on, and says what happened to each match. */
 export function switchModel(
   engines: readonly Engine[],
@@ -231,12 +249,40 @@ export function switchModel(
   return [...lines, pc.dim(`  ${disabledPath()}`)].join('\n');
 }
 
+/**
+ * What a save changed, and what routing does now as a result.
+ *
+ * The second half is the payoff. "3 turned off" is a receipt; "the mid tier now
+ * routes at claude-sonnet-5" is the answer to why you opened the editor.
+ */
+export function renderSaved(
+  changes: { turnedOff: readonly string[]; turnedOn: readonly string[] },
+  routed: ReadonlyMap<string, string>,
+): string {
+  const out: string[] = [];
+  for (const key of changes.turnedOff) out.push(`  ${pc.yellow('⊘')} ${key.replace(':', '/')}`);
+  for (const key of changes.turnedOn) out.push(`  ${pc.green('●')} ${key.replace(':', '/')}`);
+
+  if (out.length === 0) return pc.dim('  nothing changed');
+
+  out.push('');
+  for (const tier of TIERS) {
+    const hit = [...routed.entries()].find(([k]) => k.endsWith(`:${tier}`));
+    if (hit) out.push(pc.dim(`  ${tier.padEnd(5)} now routes at ${hit[0].split(':')[0]}/${hit[1]}`));
+  }
+  out.push(pc.dim(`  ${disabledPath()}`));
+
+  return out.join('\n');
+}
+
 export interface ModelsOptions {
-  /** `on` or `off`, with the model to switch. Absent means list. */
+  /** `on` or `off`, with the model to switch. Absent means the editor. */
   readonly action?: 'on' | 'off';
   readonly target?: string;
   readonly provider?: string;
   readonly cwd?: string;
+  /** Print the list and exit, instead of opening the editor. */
+  readonly list?: boolean;
 }
 
 export async function runModels(opts: ModelsOptions = {}): Promise<number> {
@@ -254,6 +300,15 @@ export async function runModels(opts: ModelsOptions = {}): Promise<number> {
   }
 
   const fleet = new Fleet(engines, policyFromEnv(), root);
-  process.stdout.write(`${await listModels(fleet, engines, root)}\n`);
+
+  // The editor needs a terminal to read arrow keys from. A pipe gets the
+  // listing, which is the useful thing to put in a transcript anyway, so this
+  // is a fallback rather than a refusal.
+  if (opts.list || !process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stdout.write(`${await listModels(fleet, engines, root)}\n`);
+    return 0;
+  }
+
+  process.stdout.write(`${await editModels(fleet, engines, root)}\n`);
   return 0;
 }
