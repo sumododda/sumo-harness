@@ -29,6 +29,15 @@ export interface Features {
   readonly candidateSampling: boolean;
   /** Ask a cheap judge whether a failed rung-attempt is a near miss or a capability failure, before escalating. */
   readonly escalationJudge: boolean;
+  /**
+   * Refuse text searches past a per-stage allowance once the index has spoken.
+   *
+   * A flag because it is an optimisation and every optimisation here is a claim
+   * that has to survive `sumo bench`. This one was the exception for a while,
+   * which is how it stayed unmeasured while being the only one that refuses the
+   * model something it asked for — the rest merely change what it is given.
+   */
+  readonly searchThrottle: boolean;
 }
 
 const ALL_ON: Features = {
@@ -41,7 +50,7 @@ const ALL_ON: Features = {
   cleanRetries: true,
   stableToolList: true,
   candidateSampling: true,
-  escalationJudge: true,
+  escalationJudge: true, searchThrottle: true,
 };
 
 export const ALL_OFF: Features = {
@@ -54,7 +63,7 @@ export const ALL_OFF: Features = {
   cleanRetries: false,
   stableToolList: false,
   candidateSampling: false,
-  escalationJudge: false,
+  escalationJudge: false, searchThrottle: false,
 };
 
 let current: Features = ALL_ON;

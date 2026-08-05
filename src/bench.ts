@@ -53,6 +53,10 @@ const CONFIGS: Record<string, Features> = {
   indexed: { ...ALL_OFF, index: true },
   cached: { ...ALL_OFF, index: true, cache: true },
   gated: { ...ALL_OFF, index: true, cache: true, gatedRetrieval: true },
+  // The one optimisation that refuses the model something rather than changing
+  // what it is given, so worth isolating: `gated` versus this is exactly the
+  // cost of the search throttle.
+  throttled: { ...ALL_OFF, index: true, cache: true, gatedRetrieval: true, searchThrottle: true },
   full: {
     index: true,
     cache: true,
@@ -64,6 +68,7 @@ const CONFIGS: Record<string, Features> = {
     stableToolList: true,
     candidateSampling: true,
     escalationJudge: true,
+    searchThrottle: true,
   },
 };
 

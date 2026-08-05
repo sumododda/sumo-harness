@@ -200,3 +200,56 @@ test('findSecret matches the same patterns buildGate refuses content on', () => 
   assert.match(found.label, /AWS access key/i);
   assert.equal(findSecret('export const x = 1;'), null);
 });
+
+test('the search throttle names what is still available', async () => {
+  const features = await import('../src/features.ts');
+  const original = features.get();
+  features.set({ ...original, searchThrottle: true });
+
+  try {
+    const gate = buildGate({ root: ROOT, allowWrites: false, indexed: true });
+
+    // The allowance is generous on purpose; the pack covers the task's code,
+    // not the whole repo, so a stage legitimately searches for build config or
+    // a literal string it was never given.
+    for (let i = 0; i < 6; i += 1) {
+      assert.equal(gate('Grep', { pattern: `thing-${String(i)}` }), null, `search ${String(i)}`);
+    }
+
+    const refused = gate('Grep', { pattern: 'one-too-many' });
+    assert.ok(refused, 'the seventh is refused');
+
+    // The old wording asked the model to "say what you are looking for and why
+    // the context is insufficient". Nothing ever read that: denials are counted
+    // and never parsed, so there was no way to earn the search back. A refusal
+    // that invites a negotiation it cannot hold is worse than a plain one.
+    assert.doesNotMatch(refused, /say what you are looking for/i);
+    // What it must do instead is name the tools that still work.
+    assert.match(refused, /Read/, 'reads are not limited and should be named');
+    assert.match(refused, /Glob/, 'nor is finding a file by name');
+
+    // Reading and globbing genuinely still work, so the message is not a lie.
+    assert.equal(gate('Read', { file_path: '/repo/src/a.ts' }), null);
+    assert.equal(gate('Glob', { pattern: '**/*.test.ts' }), null);
+  } finally {
+    features.set(original);
+  }
+});
+
+test('the throttle can be switched off, like every other optimisation', async () => {
+  const features = await import('../src/features.ts');
+  const original = features.get();
+  features.set({ ...original, searchThrottle: false });
+
+  try {
+    // A claim that cannot be turned off cannot be measured, and this is the one
+    // optimisation that refuses the model something rather than changing what
+    // it is given — so it is the one most worth being able to price.
+    const gate = buildGate({ root: ROOT, allowWrites: false, indexed: true });
+    for (let i = 0; i < 20; i += 1) {
+      assert.equal(gate('Grep', { pattern: `thing-${String(i)}` }), null);
+    }
+  } finally {
+    features.set(original);
+  }
+});

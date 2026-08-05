@@ -7,6 +7,7 @@
  * test files.
  */
 
+import * as features from './features.ts';
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { ToolGate } from './engine/types.ts';
@@ -146,10 +147,19 @@ export function buildGate(opts: GateOptions): ToolGate {
     // Glob is never throttled. It answers "what files exist called X", which the
     // index pack — a semantic slice around one task — genuinely does not cover.
     // Throttling it made stages fight the gate while hunting for test files.
-    if (opts.indexed && toolName === 'Grep') {
+    if (opts.indexed && features.get().searchThrottle && toolName === 'Grep') {
       searches += 1;
       if (searches > FREE_SEARCHES) {
-        return 'Prefer the indexed context above, or Read a specific file. If you still need to search text, say what you are looking for and why the context is insufficient.';
+        // Names what is still available rather than asking for an explanation.
+        // The old wording invited the model to "say what you are looking for
+        // and why the context is insufficient" — and nothing read the answer.
+        // Denials are counted, never parsed, so there was no way to earn the
+        // search back: a refusal dressed as a negotiation.
+        return (
+          `No more text searches in this stage (${String(FREE_SEARCHES)} used). ` +
+          'Read any file — reads are not limited — or use Glob to find one by name. ' +
+          'The indexed context above was selected for this task and is the faster answer.'
+        );
       }
       return null;
     }
