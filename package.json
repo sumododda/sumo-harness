@@ -1,6 +1,6 @@
 {
   "name": "sumo-harness",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Token-frugal coding harness driving Claude Code via the Agent SDK",
   "keywords": [
     "claude",
