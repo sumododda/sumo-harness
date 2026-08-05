@@ -134,12 +134,39 @@ leave it null when nothing test-shaped fits, e.g. a UI or manual-only bug —
 forcing one where none applies is worse than proposing none.
 At most three hypotheses, each tied to an observation.`;
 
-export const ROOT_CAUSE_STAGE = (bug: string, evidence: string, repro: string) =>
+/**
+ * What became of the repro command the evidence stage proposed.
+ *
+ * Three states rather than a string, because the evidence block always carries
+ * the proposed command — it is a field on the Evidence schema — so a stage
+ * handed nothing cannot tell "there was no repro" from "there was one and it
+ * was declined". It read the command sitting in the evidence, assumed it had
+ * run, and cited it: one real root cause rested on "repro: node … reproduces
+ * the raw stack trace" for a command the operator had refused.
+ */
+export type ReproOutcome =
+  | { readonly kind: 'ran'; readonly output: string }
+  | { readonly kind: 'not-run' }
+  | { readonly kind: 'none' };
+
+function reproBlock(repro: ReproOutcome): string {
+  if (repro.kind === 'ran') return `\nRepro output (run by the harness):\n${repro.output}\n`;
+  if (repro.kind === 'not-run') {
+    return (
+      '\nThe repro command shown in the evidence above was NOT run — nothing is\n' +
+      'known about what it prints. It is a proposal, not an observation, and must\n' +
+      'not be cited as evidence.\n'
+    );
+  }
+  return '';
+}
+
+export const ROOT_CAUSE_STAGE = (bug: string, evidence: string, repro: ReproOutcome) =>
   `Reported problem: ${bug}
 
 Evidence gathered:
 ${evidence}
-${repro ? `\nRepro output (run by the harness):\n${repro}\n` : ''}
+${reproBlock(repro)}
 State the single most likely root cause. Every claim must cite an observation
 or a line of the repro output above — no unreferenced assertions. If the
 evidence does not support a conclusion, say so in the cause and leave the fix
@@ -285,6 +312,24 @@ Judge this failure. Is it a near miss the same approach could likely fix with
 another try at the same rung, or does it look like the current approach or
 model capability is insufficient and a stronger model is needed? Answer with
 the verdict only — no explanation.`;
+
+/**
+ * Rewrites a proposed repro command from the operator's correction.
+ *
+ * The repro gate offers the same grammar as every other gate — including "say
+ * what to change" — and used to treat anything but `y` as a refusal. Telling it
+ * to write somewhere else was silently read as "do not run it", which is the
+ * failure the gate exists to prevent: being told what to change and having
+ * nothing change.
+ */
+export const REPRO_REVISE_STAGE = (command: string, notes: readonly string[]) =>
+  `This command was proposed to reproduce the bug:
+
+${command}
+${feedbackBlock(notes)}
+Reply with the corrected command. It must be a single non-interactive shell
+command, must not touch files the operator did not ask it to, and must not
+push, reset, or delete anything.`;
 
 export const DISCUSS_STAGE = (proposal: string, question: string) =>
   `A proposal is on the table:

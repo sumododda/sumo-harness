@@ -17,6 +17,7 @@ import {
   renderExplore,
   renderPlan,
   renderRootCause,
+  unusableRootCause,
   RootCause,
 } from '../src/schemas.ts';
 
@@ -171,4 +172,79 @@ test('rendering beats JSON once there is more than one observation', () => {
   assert.ok(ratio(2) < 1, `two rows should already pay, got ${ratio(2).toFixed(2)}`);
   assert.ok(ratio(6) < 0.9, `six rows should be clearly cheaper, got ${ratio(6).toFixed(2)}`);
   assert.ok(ratio(25) < ratio(6), 'and the advantage should keep widening');
+});
+
+// ------------------------------------------------- a schema slot filled, not answered
+
+test('a root cause proposing no fix is not something to approve', () => {
+  // The stage is told to leave the fix empty when the evidence does not support
+  // one, so this is a correct answer to a hard question — and exactly the thing
+  // that must not reach a gate reading "Approve this root cause and fix?".
+  const answer = RootCause.parse({
+    cause: 'The evidence covers the parser but never reaches the code that formats the total.',
+    evidenceRefs: ['src/cart.js:12'],
+    fix: [],
+    verification: 'none proposed',
+  });
+  assert.match(unusableRootCause(answer) ?? '', /did not support a fix/);
+});
+
+test('a one-word root cause is refused even with a fix attached', () => {
+  // Observed live: a revision came back as `cause: "Test"` with evidence
+  // ["a","b"], rendered into a perfectly ordinary box and offered for approval.
+  const answer = RootCause.parse({
+    cause: 'Test',
+    evidenceRefs: ['a', 'b'],
+    fix: [{ file: 'src/cli.ts', change: 'something' }],
+    verification: 'test',
+  });
+  assert.match(unusableRootCause(answer) ?? '', /placeholder/);
+});
+
+test('a real root cause passes', () => {
+  const answer = RootCause.parse({
+    cause:
+      'The catch block only special-cases JournalParseError, so an ENOENT from readFileSync is rethrown uncaught.',
+    evidenceRefs: ['src/cli.ts:18'],
+    fix: [{ file: 'src/cli.ts', change: 'handle ErrnoException before the final else' }],
+    verification: 'run the CLI against a missing file and check stderr is one line',
+  });
+  assert.equal(unusableRootCause(answer), null);
+});
+
+// ------------------------------------------------------------ stray section tags
+
+test('a section tag the model closed but never opened is stripped', () => {
+  const parsed = parse(
+    RootCause,
+    JSON.stringify({
+      cause: 'The gate maps every write to Write, so an edit is refused with advice it cannot take.',
+      evidenceRefs: ['src/engine/copilot.ts:307'],
+      fix: [{ file: 'src/engine/copilot.ts', change: 'map create and edit apart' }],
+      verification: 'run a Copilot edit against an existing file</verification>',
+    }),
+  );
+  assert.equal(parsed?.verification, 'run a Copilot edit against an existing file');
+});
+
+test('a tag the model did open survives, because it is content', () => {
+  // Evidence.reproTest.content is written to disk. An HTML fixture that ends in
+  // </html> opened that tag, and truncating it would corrupt the file.
+  const content = '<html>\n  <body>hi</body>\n</html>';
+  const parsed = parse(
+    Evidence,
+    JSON.stringify({ ...EVIDENCE, reproTest: { file: 'test/page.html', content } }),
+  );
+  assert.equal(parsed?.reproTest?.content, content);
+});
+
+test('a tag in the middle of a value is left alone', () => {
+  const parsed = parse(
+    Evidence,
+    JSON.stringify({
+      ...EVIDENCE,
+      suspects: ['the <div> branch in renderRow'],
+    }),
+  );
+  assert.deepEqual(parsed?.suspects, ['the <div> branch in renderRow']);
 });

@@ -5,6 +5,9 @@
  * `claude-*` model. Everything above it works in tiers.
  */
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { HookJSONOutput, Options, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
@@ -68,8 +71,29 @@ export function toolsFor(capabilities: readonly Capability[]): string[] {
   return [...new Set(granted.flatMap((c) => TOOLS[c]))];
 }
 
+/**
+ * Whether this machine looks like it has an Anthropic account.
+ *
+ * A key in the environment, or a `claude` CLI that has been logged in. The CLI
+ * keeps its token in the system keychain on macOS, so there is no credential
+ * file to look for and no way to check without asking the keychain — which
+ * prompts. Its config directory is the honest proxy: it exists once the CLI has
+ * run, which is exactly when there is a login to borrow.
+ *
+ * Cheap and synchronous by contract — this decides what goes in the default
+ * fleet, before any work starts, so it reads the environment and the filesystem
+ * and never spawns anything.
+ */
+export function credentialed(): boolean {
+  if (process.env['ANTHROPIC_API_KEY']) return true;
+  const home = homedir();
+  return existsSync(join(home, '.claude.json')) || existsSync(join(home, '.claude'));
+}
+
 export class ClaudeEngine implements Engine {
   readonly name = 'claude';
+  /** models.dev files these under the vendor's name, not the model family's. */
+  readonly catalogName = 'anthropic';
   /** Anthropic prices a request in money, so this provider's numbers are dollars. */
   readonly costUnit = 'usd' as const;
   /** The SDK constrains a final answer with `outputFormat: json_schema`. */

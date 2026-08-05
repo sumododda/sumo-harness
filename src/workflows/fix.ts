@@ -29,10 +29,20 @@ import {
   EVIDENCE_STAGE,
   feedbackBlock,
   FIX_STAGE,
+  type ReproOutcome,
+  REPRO_REVISE_STAGE,
   ROOT_CAUSE_STAGE,
 } from '../prompts.ts';
 import * as runner from '../runner.ts';
-import { EscalationVerdict, Evidence, jsonSchema, parse as parseSchema, RootCause } from '../schemas.ts';
+import {
+  EscalationVerdict,
+  Evidence,
+  jsonSchema,
+  parse as parseSchema,
+  ReproCommand,
+  RootCause,
+  unusableRootCause,
+} from '../schemas.ts';
 import { runStage } from '../stage.ts';
 import type { Progress } from '../progress.ts';
 import type { Steering } from '../steer.ts';
@@ -172,6 +182,15 @@ export async function runFix(
   const repro = evidenceValue?.repro ? await maybeRunRepro(evidenceValue.repro, ctx) : null;
   if (repro) state.write('repro.txt', repro);
 
+  // A proposal that was declined is not the same as no proposal, and the
+  // difference is invisible from the evidence alone — the command is in there
+  // either way. Only this line knows which happened.
+  const reproOutcome: ReproOutcome = repro
+    ? { kind: 'ran', output: repro }
+    : evidenceValue?.repro
+      ? { kind: 'not-run' }
+      : { kind: 'none' };
+
   // 2b. A reproduction TEST — a stronger signal than a shell command, and the
   // basis for candidate sampling below. `evidenceValue` is only populated on
   // the live evidence path above: a reused evidence.md is rendered text, not
@@ -187,7 +206,7 @@ export async function runFix(
     fleet,
     {
       name: 'root-cause',
-      prompt: ROOT_CAUSE_STAGE(bug, evidenceText, repro ?? ''),
+      prompt: ROOT_CAUSE_STAGE(bug, evidenceText, reproOutcome),
       rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
       capabilities: ['read', 'search'],
       cwd,
@@ -208,6 +227,13 @@ export async function runFix(
   if (diagnosis.prompt.trim().length === 0) {
     return { kind: 'stopped', why: producedNothing('root-cause', rootCause.stopped) };
   }
+
+  // Answering in the schema is not the same as having answered. A proposal with
+  // no fix in it, or a cause that is a placeholder, is not something an operator
+  // can take responsibility for — and the gate's own emptiness check cannot see
+  // either, because both render into a perfectly well-formed box.
+  const unusable = diagnosis.value ? unusableRootCause(diagnosis.value) : null;
+  if (unusable) return { kind: 'stopped', why: unusable };
 
   // 4. The gate. Nothing below this line runs without approval.
   const approved = await gateRootCause(diagnosis, bug, rung, ctx);
@@ -553,7 +579,7 @@ async function gateRootCause(
       {
         name: 'root-cause',
         prompt:
-          `${ROOT_CAUSE_STAGE(bug, cause.prompt, '')}\n\n` +
+          `${ROOT_CAUSE_STAGE(bug, cause.prompt, { kind: 'none' })}\n\n` +
           `${feedbackBlock(notes)}\nRevise accordingly.`,
         rung: { tier: rung.tier, effort: rung.tier === 'small' ? undefined : 'high' },
         capabilities: ['read', 'search'],
@@ -569,7 +595,17 @@ async function gateRootCause(
     );
     ui.endTurn();
 
-    cause = ui.shownRootCause(revised.output);
+    const rewritten = ui.shownRootCause(revised.output);
+
+    // A revision is where this went wrong in practice: asked to widen a fix,
+    // one came back as `cause: "Test"` with no fix at all, and the loop went
+    // straight on to offer it. Keeping the previous proposal is the right
+    // fallback — it is the last thing that was actually a diagnosis — and
+    // stopping is better than gating on the placeholder that replaced it.
+    const spoiled = rewritten.value ? unusableRootCause(rewritten.value) : null;
+    if (spoiled) return { kind: 'stopped', why: spoiled, at: 'gate' };
+
+    cause = rewritten;
     ctx.state.write('rootcause.md', cause.prompt);
     ctx.state.write('rootcause.display.md', cause.display);
     // A revision produced something new, so it does need showing.
@@ -584,27 +620,88 @@ async function gateRootCause(
  * heading in prose, so what runs here is what the stage meant to propose.
  */
 async function maybeRunRepro(proposed: string, ctx: FixContext): Promise<string | null> {
-  const command = proposed.trim();
+  let command = proposed.trim();
   if (command.length === 0) return null;
 
-  const { concerns } = runner.screenProposedCommand(command);
+  // Every other gate in the harness answers questions for free and treats prose
+  // as a correction. This one printed the same grammar and did neither, so a
+  // correction and a refusal were the same keystroke. The loop is what makes
+  // the promise on screen true.
+  const notes: string[] = [];
 
-  const decision = await askApproval(
-    ctx.input,
-    {
-      title: 'Run this to reproduce?',
-      ...(ctx.steer ? { steer: ctx.steer } : {}),
-      body: command,
-      warnings: concerns.map((c) => `This command ${c}.`),
-    },
-    ctx.isTty,
-    // A proposed command is never auto-approved on its concerns alone.
-    ctx.autoApprove && concerns.length === 0,
-  );
+  for (let revision = 0; ; ) {
+    const { concerns } = runner.screenProposedCommand(command);
 
-  if (decision.kind !== 'approved') {
-    process.stdout.write(pc.dim('  skipped\n'));
-    return null;
+    const decision = await askApproval(
+      ctx.input,
+      {
+        title: 'Run this to reproduce?',
+        ...(ctx.steer ? { steer: ctx.steer } : {}),
+        body: command,
+        warnings: concerns.map((c) => `This command ${c}.`),
+      },
+      ctx.isTty,
+      // A proposed command is never auto-approved on its concerns alone.
+      ctx.autoApprove && concerns.length === 0,
+    );
+
+    if (decision.kind === 'rejected') {
+      process.stdout.write(pc.dim('  skipped\n'));
+      return null;
+    }
+
+    if (decision.kind === 'approved') break;
+
+    if (decision.kind === 'discuss') {
+      await runStage(
+        ctx.fleet,
+        {
+          name: 'discuss',
+          prompt: DISCUSS_STAGE(command, decision.question),
+          rung: { tier: 'small' },
+          capabilities: ['read', 'search'],
+          cwd: ctx.cwd,
+          ...(ctx.indexed ? { indexed: true } : {}),
+          allowWrites: false,
+          ...(ctx.steer ? { steer: ctx.steer } : {}),
+          ...(ctx.progress ? { progress: ctx.progress } : {}),
+          onEvent: ui.renderEvent,
+        },
+        ctx.ledger,
+      );
+      ui.endTurn();
+      continue;
+    }
+
+    revision += 1;
+    if (revision >= MAX_REVISIONS) {
+      process.stdout.write(pc.dim('  still not right — skipping the repro\n'));
+      return null;
+    }
+
+    notes.push(decision.feedback);
+    const revised = await runStage(
+      ctx.fleet,
+      {
+        name: 'repro',
+        prompt: REPRO_REVISE_STAGE(command, notes),
+        rung: { tier: 'small' },
+        capabilities: ['read', 'search'],
+        cwd: ctx.cwd,
+        allowWrites: false,
+        outputSchema: jsonSchema(ReproCommand),
+        ...(ctx.progress ? { progress: ctx.progress } : {}),
+      },
+      ctx.ledger,
+    );
+    ui.endTurn();
+
+    const rewritten = parseSchema(ReproCommand, revised.output)?.command.trim();
+    if (!rewritten) {
+      process.stdout.write(pc.dim('  no revised command came back — skipping the repro\n'));
+      return null;
+    }
+    command = rewritten;
   }
 
   const result = await runner.run(command, ctx.cwd);

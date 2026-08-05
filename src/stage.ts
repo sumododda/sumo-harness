@@ -199,7 +199,14 @@ export async function runStage(
   const result: StageResult = {
     ...raw,
     composition,
-    ...(tally.edit + tally.write > 0 ? { writeTools: tally } : {}),
+    // Recorded whenever the stage was *allowed* to write, including when it
+    // wrote nothing. Omitting a zero was how a stage that changed no files came
+    // to be reported by its own summary alone: a Copilot `/do` explored the
+    // repository, never called an edit tool, and answered "README.md —
+    // documented the new flags". Nothing on screen disagreed, because the only
+    // thing that could have was left off for being zero. A writable stage that
+    // wrote nothing is exactly the case worth printing.
+    ...(allowWrites ? { writeTools: tally } : {}),
     ...(spec.attempt !== undefined ? { attempt: spec.attempt } : {}),
   };
 
@@ -236,6 +243,7 @@ function summarize(result: StageResult): string {
     const { edit, write } = result.writeTools;
     const total = edit + write;
     if (total > 0) parts.push(`${total} edit${total === 1 ? '' : 's'}`);
+    else parts.push(pc.yellow('no files changed'));
   }
   if (result.denials.length > 0) {
     parts.push(pc.yellow(`${result.denials.length} refused`));

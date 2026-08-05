@@ -13,15 +13,20 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { clearUnusable } from '../src/engine/availability.ts';
 import { candidates, modelsFor, type ModelSpec, undominated } from '../src/engine/catalog.ts';
+import { ClaudeEngine } from '../src/engine/claude.ts';
 import { Fleet, policyFromEnv } from '../src/engine/fleet.ts';
 import type { AvailableModel } from '../src/engine/availability.ts';
 import type { Engine } from '../src/engine/types.ts';
 
-function engine(name: string, opts: { schema?: boolean; models?: readonly AvailableModel[] } = {}): Engine {
+function engine(
+  name: string,
+  opts: { schema?: boolean; attempts?: boolean; models?: readonly AvailableModel[] } = {},
+): Engine {
   const base: Engine = {
     name,
     costUnit: 'usd',
     supportsOutputSchema: opts.schema ?? true,
+    ...(opts.attempts === undefined ? {} : { attemptsOutputSchema: opts.attempts }),
     modelFor: () => 'stub',
     supportsEffort: () => true,
     runStage: () => {
@@ -408,6 +413,97 @@ test('a preference only breaks ties; it cannot promote a beaten model', async ()
     ]);
     assert.ok(survivors.has(a.model?.id ?? ''));
     assert.ok(survivors.has(c.model?.id ?? ''));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------- the catalogue's own spelling
+
+test('the real Anthropic engine finds itself in the catalogue', () => {
+  // `ClaudeEngine.name` is "claude"; models.dev files those models under
+  // "anthropic". Looking the catalogue up by the wrong string returns nothing
+  // and is indistinguishable from a provider it does not describe — so the
+  // engine fell back to choosing its own model and never entered the pool that
+  // routing actually ranks. Invisible in a fleet of one; decisive in a fleet of
+  // two, where it meant Anthropic could not win a stage or lose one.
+  const engine = new ClaudeEngine();
+  assert.ok(
+    modelsFor(engine.catalogName ?? engine.name).length > 0,
+    'the Anthropic engine resolves to no catalogued models',
+  );
+});
+
+test('a provider is pooled under its catalogue name, not its display name', async () => {
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const named: Engine = { ...engine('claude'), catalogName: 'anthropic' };
+    const fleet = new Fleet([named], {}, dir);
+    const routed = await fleet.for({ tier: 'large', needsSchema: false, capabilities: [] });
+    // A named model at all is the assertion: "chooses its own model" is what a
+    // provider the catalogue cannot describe falls back to.
+    assert.ok(routed.model, 'routed with no model named — the catalogue lookup missed');
+    assert.equal(routed.engine.name, 'claude');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------------- schema-capable stages
+
+test('a provider that can only attempt a schema still runs the stage when it is alone', async () => {
+  const dir = scratch();
+  try {
+    clearUnusable();
+    // Before this, a Copilot-only fleet threw on every schema stage — which is
+    // every stage of feature, fix and plan — while the submit tool that would
+    // have answered them sat implemented and unreachable.
+    const fleet = new Fleet([engine('github-copilot', { schema: false, attempts: true })], {}, dir);
+    const routed = await fleet.for({ tier: 'mid', needsSchema: true, capabilities: [] });
+    assert.equal(routed.engine.name, 'github-copilot');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an attempt never wins a schema stage while a guarantee is in the fleet', async () => {
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const fleet = new Fleet(
+      [engine('github-copilot', { schema: false, attempts: true }), engine('claude')],
+      {},
+      dir,
+    );
+    const routed = await fleet.for({ tier: 'mid', needsSchema: true, capabilities: [] });
+    assert.equal(routed.engine.name, 'claude');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a stage needing no schema still reaches a provider that cannot guarantee one', async () => {
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const fleet = new Fleet([engine('github-copilot', { schema: false, attempts: true })], {}, dir);
+    const routed = await fleet.for({ tier: 'mid', needsSchema: false, capabilities: [] });
+    assert.equal(routed.engine.name, 'github-copilot');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a provider that neither guarantees nor attempts a schema is refused, not routed at', async () => {
+  const dir = scratch();
+  try {
+    clearUnusable();
+    const fleet = new Fleet([engine('github-copilot', { schema: false })], {}, dir);
+    await assert.rejects(
+      () => fleet.for({ tier: 'mid', needsSchema: true, capabilities: [] }),
+      /No provider can answer a schema-constrained stage/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -75,6 +75,26 @@ export interface Engine {
   /** Identifier for logs and the ledger, e.g. "claude". */
   readonly name: string;
   /**
+   * What the model catalogue calls this provider, when that differs from
+   * {@link name}.
+   *
+   * models.dev keys Anthropic's models under `anthropic`; this harness has
+   * always called that provider `claude`, in the banner, the ledger and
+   * `--provider`. Those are both good names and neither is wrong — but the
+   * catalogue is looked up by string, so the mismatch meant `modelsFor('claude')`
+   * returned nothing, every time, silently.
+   *
+   * The effect was invisible while every fleet held one provider: an engine the
+   * catalogue cannot describe falls back to choosing its own model, which is
+   * what it did, correctly. It stops being invisible the moment a second
+   * provider joins. A provider with no catalogue entries contributes nothing to
+   * the pool, and the pool is what routing ranks — so Anthropic could not win a
+   * stage it was better at, or lose one it was worse at. It was not in the
+   * comparison at all, and Copilot would have taken every stage the fleet did
+   * not reserve for a schema.
+   */
+  readonly catalogName?: string;
+  /**
    * What this provider's cost figures mean.
    *
    * Declared by the provider rather than assumed by the harness, because the
@@ -94,6 +114,28 @@ export interface Engine {
    * one that has not arranged it says so here.
    */
   readonly supportsOutputSchema: boolean;
+  /**
+   * Whether this provider has arranged a schema answer by other means, when it
+   * cannot guarantee one.
+   *
+   * The distinction is the whole point. {@link supportsOutputSchema} means the
+   * provider will not return anything that fails the schema; this means it will
+   * *try* — typically by handing the model a tool carrying the schema and
+   * telling it to call it, which the runtime validates but the model may
+   * decline to use.
+   *
+   * Routing prefers a guarantee wherever one is available and never downgrades
+   * to an attempt while a guarantee is in the fleet. But an attempt is worth far
+   * more than the alternative when it is all there is: before this existed, a
+   * Copilot-only fleet refused every staged workflow outright — `feature`,
+   * `fix` and `plan` all died at the first stage — while the tool that would
+   * have answered them sat implemented and unreachable in `copilot.ts`.
+   *
+   * A stage that asks and gets nothing back already has a path: the engine
+   * reports `stopped: 'error'` and the workflow stops without gating on an
+   * answer it did not get.
+   */
+  readonly attemptsOutputSchema?: boolean;
   /** The concrete model this provider uses for a tier — for display and cost attribution. */
   modelFor(tier: Tier): string;
   /** Whether this provider honours an explicit effort setting at the given tier. */

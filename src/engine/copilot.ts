@@ -21,6 +21,9 @@
  * machine. There is no device flow to implement here.
  */
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { CopilotClient, defineTool } from '@github/copilot-sdk';
 import type { ModelInfo, PermissionRequest, PermissionRequestResult } from '@github/copilot-sdk';
 import { runGit, screenGit } from '../git-tool.ts';
@@ -105,6 +108,27 @@ async function client(): Promise<CopilotClient> {
   return starting;
 }
 
+/**
+ * Whether this machine looks like it has a Copilot account.
+ *
+ * One of the tokens the SDK reads, or a Copilot CLI that has run here.
+ *
+ * A `gh` login is deliberately not evidence. `gh auth status` says the machine
+ * can reach GitHub, which is a different question from whether the account
+ * carries a Copilot entitlement — and reading it as a yes would put this
+ * provider in the default fleet of every machine with `gh` installed, where it
+ * would win a stage and then fail it.
+ *
+ * The cost of being too strict is small and recoverable: a subscriber who has
+ * never run the CLI passes `--provider github-copilot` once, which skips this
+ * check entirely.
+ */
+export function credentialed(): boolean {
+  const token =
+    process.env['COPILOT_GITHUB_TOKEN'] ?? process.env['GH_TOKEN'] ?? process.env['GITHUB_TOKEN'];
+  return Boolean(token) || existsSync(join(homedir(), '.copilot'));
+}
+
 export class CopilotEngine implements Engine {
   readonly name = 'github-copilot';
   /**
@@ -124,6 +148,13 @@ export class CopilotEngine implements Engine {
    * router reads this when a stage cannot proceed without one.
    */
   readonly supportsOutputSchema = false;
+  /**
+   * But it does arrange one — see {@link SUBMIT_TOOL}. The arguments are
+   * validated by the runtime before the handler runs, so an answer that arrives
+   * is schema-valid; what cannot be promised is that one arrives at all.
+   */
+  readonly attemptsOutputSchema = true;
+
 
   modelFor(tier: Tier): string {
     return FALLBACK[tier];
@@ -304,8 +335,9 @@ function decide(
   }
 
   if (kind === 'write' || kind === 'read') {
-    const file = (request as { fileName?: string }).fileName;
-    const reason = req.gate?.(kind === 'write' ? 'Write' : 'Read', file ? { file_path: file } : {});
+    const [tool, input]: [string, Record<string, unknown>] =
+      kind === 'write' ? writeGateArgs(request) : ['Read', readGateArgs(request)];
+    const reason = req.gate?.(tool, input);
     if (reason !== null && reason !== undefined) {
       denials.push(kind);
       req.onEvent?.({ kind: 'denied', tool: kind, reason });
@@ -314,6 +346,60 @@ function decide(
   }
 
   return { kind: 'approve-once' };
+}
+
+function readGateArgs(request: PermissionRequest): Record<string, unknown> {
+  const file = (request as { fileName?: string }).fileName;
+  return file ? { file_path: file } : {};
+}
+
+/**
+ * A Copilot write request, in the shape the provider-neutral gate expects.
+ *
+ * Both halves of this were wrong, and each broke something different.
+ *
+ * Everything used to arrive as `Write`. The gate's `preferTargetedEdits` rule
+ * refuses a `Write` to a file that already exists and tells the model to use
+ * `Edit` instead — advice that could not be taken, because there was no way for
+ * an edit to reach the gate as one. Every targeted edit to an existing file was
+ * refused, on the one provider, with a reason that read like a solution. The
+ * same mislabelling made the edit/write tally — which exists to measure exactly
+ * the difference between the two — count every edit as a whole-file rewrite.
+ *
+ * And no content was passed at all, so `findSecret` was handed an empty string
+ * on every call: the screen that refuses a write containing something
+ * key-shaped could not fire on this provider. A gate that cannot see what is
+ * being written is not a gate.
+ *
+ * The SDK distinguishes the two cases for us. `newFileContents` is populated
+ * only when the whole file is being written; a targeted edit carries a unified
+ * `diff` and nothing else. That maps exactly onto the two tools the gate knows,
+ * and onto the two fields `writtenContent` reads for each.
+ */
+export function writeGateArgs(request: PermissionRequest): [string, Record<string, unknown>] {
+  const w = request as { fileName?: string; diff?: string; newFileContents?: string };
+  const path = w.fileName ? { file_path: w.fileName } : {};
+
+  if (w.newFileContents !== undefined) {
+    return ['Write', { ...path, content: w.newFileContents }];
+  }
+  return ['Edit', { ...path, new_string: addedLines(w.diff ?? '') }];
+}
+
+/**
+ * The lines a unified diff adds, which is the whole of what a targeted edit
+ * puts on disk.
+ *
+ * Screening the raw diff instead would scan removed lines too, so deleting a
+ * line that already contained a key would be refused as though it were adding
+ * one — the one edit most worth allowing.
+ */
+function addedLines(diff: string): string {
+  return diff
+    .split('\n')
+    .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+    .map((line) => line.slice(1))
+    .join('\n');
 }
 
 /**

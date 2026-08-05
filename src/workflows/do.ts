@@ -6,7 +6,7 @@
  */
 
 import pc from 'picocolors';
-import { getEngine } from '../engine/index.ts';
+import { getFleetEngines } from '../engine/index.ts';
 import { Fleet, policyFromEnv } from '../engine/fleet.ts';
 import { Ledger } from '../ledger.ts';
 import { DO_STAGE } from '../prompts.ts';
@@ -23,7 +23,7 @@ export interface DoOptions {
 export async function runDo(task: string, opts: DoOptions = {}): Promise<number> {
   const repo = findRepo();
   const state = new TaskState(repo, TaskState.newId('do'));
-  const fleet = new Fleet([getEngine(opts.provider)], policyFromEnv());
+  const fleet = new Fleet(getFleetEngines(opts.provider), policyFromEnv());
   const ledger = new Ledger();
 
   const result = await runStage(

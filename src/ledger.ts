@@ -160,10 +160,17 @@ export class Ledger {
     const slice = this.rows.slice(from);
     if (slice.length === 0) return pc.dim('No stages ran.');
 
-    const head = ['stage', 'model', 'in', 'out', 'pcache', 'turns', 'cost'];
+    // `on` earns a column now that a fleet holds more than one provider. The
+    // tier alone answered "how hard did this think", which was the only open
+    // question while every stage ran on the same account. With routing choosing
+    // per stage across providers, "which account paid for this, and what
+    // actually ran" is no longer inferable — the closest thing to a clue was
+    // the currency the cost happened to be printed in.
+    const head = ['stage', 'model', 'on', 'in', 'out', 'pcache', 'turns', 'cost'];
     const body = slice.map((r) => [
       r.stage,
       describeRung(r.rung),
+      r.model,
       String(r.inputTokens),
       String(r.outputTokens),
       String(r.cacheReadTokens),
@@ -178,7 +185,8 @@ export class Ledger {
     );
     const line = (cells: string[], dim: boolean) => {
       const text = cells
-        .map((c, i) => (i >= 2 ? c.padStart(widths[i]!) : c.padEnd(widths[i]!)))
+        // The three name columns read left-aligned; every number reads right.
+        .map((c, i) => (i >= 3 ? c.padStart(widths[i]!) : c.padEnd(widths[i]!)))
         .join('  ');
       return dim ? pc.dim(text) : text;
     };

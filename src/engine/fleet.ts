@@ -154,9 +154,24 @@ export class Fleet {
    * away in favour of something that cannot be called.
    */
   async for(need: StageNeed): Promise<Routed> {
-    const capableEngines = need.needsSchema
-      ? this.engines.filter((e) => e.supportsOutputSchema)
-      : this.engines;
+    // A guarantee wherever one exists, an attempt only when none does. Falling
+    // back rather than throwing is what makes a Copilot-only fleet able to run
+    // a staged workflow at all; putting the fallback *below* the guarantee is
+    // what stops a mixed fleet from ever choosing the weaker promise.
+    const guaranteed = this.engines.filter((e) => e.supportsOutputSchema);
+    const attempting = this.engines.filter((e) => e.attemptsOutputSchema === true);
+
+    const capableEngines = !need.needsSchema
+      ? this.engines
+      : guaranteed.length > 0
+        ? guaranteed
+        : attempting;
+
+    // Schema support is a property of the model as well as the provider, and
+    // only a provider that guarantees one has a model-level guarantee to check.
+    // Holding an attempting engine to it would filter away every model it has
+    // and land back at the failure this fallback exists to prevent.
+    const requireSchemaModels = need.needsSchema && guaranteed.length > 0;
 
     if (capableEngines.length === 0) {
       throw new SumoError(
@@ -175,7 +190,7 @@ export class Fleet {
     const blind: Engine[] = [];
 
     for (const engine of capableEngines) {
-      const offers = await this.offersFrom(engine, need);
+      const offers = await this.offersFrom(engine, need, requireSchemaModels);
       if (offers === null) blind.push(engine);
       else pool.push(...offers);
     }
@@ -253,8 +268,18 @@ export class Fleet {
    * offers models the catalogue knows perfectly well, none of which suit this
    * stage. That is a trustworthy no, and the engine simply contributes nothing.
    */
-  private async offersFrom(engine: Engine, need: StageNeed): Promise<Offer[] | null> {
-    const known = modelsFor(engine.name);
+  private async offersFrom(
+    engine: Engine,
+    need: StageNeed,
+    requireSchemaModels: boolean,
+  ): Promise<Offer[] | null> {
+    // The catalogue's own spelling for this provider, which is not always the
+    // harness's — see `Engine.catalogName`. Looking it up by the wrong one
+    // returns nothing and is indistinguishable from a provider the catalogue
+    // genuinely does not describe.
+    const catalogued = engine.catalogName ?? engine.name;
+
+    const known = modelsFor(catalogued);
     if (known.length === 0) return null;
 
     const reachable = await usable(engine, this.root);
@@ -265,9 +290,9 @@ export class Fleet {
       return null;
     }
 
-    return candidates(engine.name, need.tier)
+    return candidates(catalogued, need.tier)
       .filter((m) => reachable === null || reachable.has(m.id))
-      .filter((m) => !need.needsSchema || canSchema(m))
+      .filter((m) => !requireSchemaModels || canSchema(m))
       // An effort the model does not accept is not a smaller request, it is an
       // invalid one — so a rung asking for effort routes only at models offering
       // it. A rung with no effort at all is satisfied by anything.

@@ -93,7 +93,7 @@ the model for each message.
   $0.0259
 ```
 
-Slash commands pin a mode when you want to override that choice:
+Slash commands name the mode when you want to override that choice:
 
 | | |
 |---|---|
@@ -103,7 +103,7 @@ Slash commands pin a mode when you want to override that choice:
 | `/feature` | explore → plan → your approval → tests → implement |
 | `/plan` | explore → plan → offer to build it |
 | `/research` | search the web and answer with sources — the only mode that leaves this machine |
-| `/auto` | back to automatic routing (default) |
+| `/auto` | unpin, back to automatic routing (default) |
 | `/again` *mode* | re-run the last message as another mode, when the routing got it wrong |
 
 And the session commands:
@@ -119,8 +119,17 @@ And the session commands:
 | `/profile` `/remember` | standing preferences |
 | `/clear` `/help` `/exit` | |
 
-`/fix the cart total is wrong` pins the mode and runs it in one line. One-shot
-use works too, for scripting: `sumo do "..." --rung 0 --budget 0.05`.
+**A command carrying a task applies to that task only.** `/fix the cart total is
+wrong` runs one fix and leaves the routing where it was; a bare `/fix` pins the
+mode until `/auto`. The distinction is worth having because the two read
+identically and mean opposite things: pinning used to be unconditional, so a
+`/feature` typed once quietly routed everything after it — including a plain bug
+report three turns later, which got a plan, a branch and a test-first workflow it
+never asked for. The mode line said `pinned · by you`, which was true, and read
+as a description of that message rather than of a decision made much earlier.
+
+One-shot use works from the shell too, for scripting:
+`sumo do "..." --rung 0 --budget 0.05`.
 
 ### The gate
 
@@ -266,6 +275,26 @@ Stages are requested at a tier plus an effort, never a model name.
 | 2 | mid | high |
 | 3 | large | medium |
 | 4 | large | high |
+
+**A tier is filled from every account you have, not from one.** Run `sumo` with
+no `--provider` and the fleet is every provider this machine holds a credential
+for. Models from all of them go into one pool per stage: what the account can
+actually reach is checked first, then what can do this particular stage, then
+dominance — a model beaten on both price and recency by something on the *other*
+provider is dropped just as readily as by one on its own — and only what
+survives is ranked, by your tier policy, then aptitude, then price.
+
+Naming a provider still means exactly that provider. Routing around one that was
+asked for by name would turn a clear failure into a silent substitution, which is
+the harder of the two to debug.
+
+The one thing not pooled is a schema. A stage that must answer in a schema goes
+to a provider that can *guarantee* one wherever the fleet has any; a provider
+that can only arrange it by convention — Copilot, which hands the model a tool
+carrying the schema and tells it to call it — is used for those stages only when
+nothing in the fleet can promise better. That is still worth having: it is the
+difference between a Copilot-only fleet running `feature`, `fix` and `plan`, and
+refusing all three.
 
 ---
 
@@ -513,9 +542,9 @@ attestations follow automatically.
 
 ## Next
 
-None of these are load-bearing: a second provider behind the `Engine` seam,
-worktree isolation so `feature` never touches your working tree, and a `/resume`
-that restarts mid-workflow rather than from the top.
+None of these are load-bearing: worktree isolation so `feature` never touches
+your working tree, and a `/resume` that restarts mid-workflow rather than from
+the top.
 
 By design: nothing indexes, installs, or spawns a server behind your back.
 `sumo setup` is the one command that does any of it, and it asks first.

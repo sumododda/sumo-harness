@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline/promises';
 import pc from 'picocolors';
 import * as cache from './cache.ts';
 import { Conversation } from './conversation.ts';
-import { getEngine } from './engine/index.ts';
+import { getFleetEngines } from './engine/index.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
 import { routeLocally } from './route/local.ts';
@@ -93,8 +93,8 @@ export async function repl(providerName?: string): Promise<number> {
   const repo = findRepo();
   // Do this before /index can create one, not only when a task starts.
   hideToolingFromGit(repo);
-  const engine = getEngine(providerName);
-  const fleet = new Fleet([engine], policyFromEnv());
+  const engines = getFleetEngines(providerName);
+  const fleet = new Fleet(engines, policyFromEnv(), repo.root);
   const ledger = new Ledger();
   const conversation = new Conversation();
   const state: ReplState = { mode: 'auto', rung: null, lastRequest: null };
@@ -105,7 +105,7 @@ export async function repl(providerName?: string): Promise<number> {
   // one writes to the user's repo, so that stays an explicit `/index` request.
   let code = await openContext(repo.root);
 
-  process.stdout.write(ui.banner(repo.root, engine.name, code.ready));
+  process.stdout.write(ui.banner(repo.root, fleet.providers.join(' + '), code.ready));
 
   // Printed in the flow, below whatever a stage last wrote, and taken back the
   // moment anything else needs the line. See src/statusbar.ts.
@@ -186,12 +186,12 @@ export async function repl(providerName?: string): Promise<number> {
 
         const outcome = handleCommand(line, state, ledger, conversation, deps);
         if (outcome === 'exit') break;
-        // `/fix the cart bug` pins the mode and runs it in one go.
+        // `/fix the cart bug` runs as a fix, once, without pinning the session.
         if (typeof outcome === 'object') {
           if ('setTestCommand' in outcome) testCommand = outcome.setTestCommand;
           else if ('runShell' in outcome) await runUserCommand(outcome.runShell, repo.root);
           else if ('resumeGate' in outcome) await working(() => handleResumeGate(outcome.resumeGate, deps));
-          else await working(() => handleTurn(outcome.run, deps));
+          else await working(() => handleTurn(outcome.run, deps, outcome.once));
         }
         continue;
       }
@@ -224,7 +224,7 @@ interface TurnDeps {
   readonly code: CodeContext;
 }
 
-async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
+async function handleTurn(input: string, deps: TurnDeps, once?: Mode): Promise<void> {
   const { fleet, repo, ledger, conversation } = deps;
 
   // The tree may have moved since the last turn — by a previous stage, or by the
@@ -246,7 +246,7 @@ async function handleTurn(input: string, deps: TurnDeps): Promise<void> {
 
   deps.state.lastRequest = input;
 
-  const intent = await decideIntent(input, deps);
+  const intent = await decideIntent(input, deps, once);
   process.stdout.write(`${ui.modeLine(intent.mode, intent.rung, intent.why, intent.by)}\n`);
 
   // Recorded before the turn runs, so a route is on the record whether or not
@@ -548,10 +548,12 @@ async function runWorkflowTurn(
 }
 
 /** Rules first; one cheap classification only when they cannot decide. */
-async function decideIntent(input: string, deps: TurnDeps): Promise<Intent> {
+async function decideIntent(input: string, deps: TurnDeps, once?: Mode): Promise<Intent> {
   const { fleet, repo, ledger, state } = deps;
 
-  const sticky = state.mode === 'auto' ? undefined : state.mode;
+  // A mode named on this message wins, and is gone by the next one. A pinned
+  // mode is the standing default under it.
+  const sticky = once ?? (state.mode === 'auto' ? undefined : state.mode);
   const ruled = classify(input, sticky);
   if (ruled) return state.rung ? { ...ruled, rung: state.rung, why: 'pinned' } : ruled;
 
@@ -651,7 +653,17 @@ function specFor(mode: Mode, input: string, context: string, cwd: string) {
 type CommandOutcome =
   | 'exit'
   | 'handled'
-  | { readonly run: string }
+  /**
+   * A task to run now, and the mode to run it in for this turn only.
+   *
+   * `once` is what stops a command from outliving the message it came with.
+   * `/feature add X` used to pin `feature` for the rest of the session, so the
+   * next thing typed — a plain-English bug report, three turns later — went
+   * through the feature workflow and cut a branch for it. The mode line said
+   * `pinned · by you`, which was true and read as a description of that message
+   * rather than of a decision made much earlier.
+   */
+  | { readonly run: string; readonly once?: Mode }
   | { readonly setTestCommand: string }
   | { readonly runShell: string }
   | {
@@ -685,9 +697,11 @@ function handleCommand(
     case 'feature':
     case 'plan':
     case 'research':
+      // A command carrying a task is that task's mode, not the session's. A
+      // bare one is a standing instruction, and pins.
+      if (arg.length > 0) return { run: arg, once: command.toLowerCase() as Mode };
       state.mode = command.toLowerCase() as Mode;
-      if (arg.length > 0) return { run: arg };
-      process.stdout.write(pc.dim(`  mode pinned to ${state.mode}\n\n`));
+      process.stdout.write(pc.dim(`  mode pinned to ${state.mode} — /auto to unpin\n\n`));
       return 'handled';
 
     case 'auto':
@@ -712,12 +726,12 @@ function handleCommand(
         );
         return 'handled';
       }
-      state.mode = wanted as Mode;
       process.stdout.write(pc.dim(`  again as ${wanted}: ${state.lastRequest}\n`));
       // Re-run verbatim. The routing log pairs it with the original and records
       // the correction, which is the only ground truth the harness ever gets
-      // about a route it got wrong.
-      return { run: state.lastRequest };
+      // about a route it got wrong. The correction is about *this* message, so
+      // it applies to this run and does not pin the session to the new mode.
+      return { run: state.lastRequest, once: wanted as Mode };
     }
 
     case 'rung': {

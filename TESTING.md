@@ -70,6 +70,35 @@ Every feature exercised against a live model in a real repo, not a unit test.
 | E9 | nothing is ever approvable | make a stage fail, watch the gate | **✗ bug 24** →✓ |
 | E10 | tests must fail before they are believed | ask `feature` for tests of behaviour that already works | ✓ refused, correctly |
 
+## Providers and the fleet
+
+Found by building a mid-size project with the harness rather than by unit test —
+every one of these passed its own tests while being wrong in a live session.
+
+| # | Claim | Result |
+|---|---|---|
+| P1 | the fleet holds every credentialed provider | **✗ every call site passed one engine** →✓ `claude + github-copilot` |
+| P2 | Anthropic models compete in the pool | **✗ catalogue keys them `anthropic`, engine is named `claude`, so the lookup silently returned nothing** →✓ |
+| P3 | a stage routes across providers | ✓ small chat routed at `gpt-5.6-luna`, `implement` best-of-3 |
+| P4 | a schema stage prefers a provider that guarantees one | ✓ |
+| P5 | a Copilot-only fleet runs `feature`/`fix`/`plan` | **✗ refused every schema stage** →✓ falls back to the submit tool |
+| P6 | a Copilot edit reaches the gate as an `Edit` | **✗ all writes arrived as `Write`** →✓ |
+| P7 | the secret screen fires on a Copilot write | **✗ no content was passed, so it never could** →✓ `test/copilot-gate.test.ts` |
+| P8 | a writable stage that changed nothing says so | **✗ a `/do` claimed an edit it never made, 8 credits** →✓ `no files changed` |
+| P9 | `/cost` says which model actually ran | **✗ only the tier** →✓ `on` column |
+
+## Gates, continued
+
+| # | Case | Expected | Result |
+|---|---|---|---|
+| G10 | root cause with an empty fix | not offered for approval | **✗ bug** →✓ stops, saying the evidence did not support one |
+| G11 | root cause that is a placeholder | not offered for approval | **✗ `cause: "Test"` was gated on** →✓ |
+| G12 | root cause cites a declined repro | must not cite it as evidence | **✗ cited it** →✓ prompt states it was not run |
+| G13 | feedback at the repro gate | revise the command | **✗ silently skipped** →✓ revises, bounded by `MAX_REVISIONS` |
+| G14 | a question at the repro gate | answered, command intact | **✗ silently skipped** →✓ |
+| M10 | `/feature <task>` then a plain message | the second is routed freshly | **✗ pinned for the session** →✓ `question · by rules` |
+| M11 | bare `/feature` | pins until `/auto` | ✓ |
+
 ## Rendering
 
 Everything a stage answers reaches two audiences with opposite needs. The
@@ -82,3 +111,5 @@ because making *it* pretty costs money and shows up nowhere.
 | D2 | the same plan in a prompt is still TOON | ✓ pinned |
 | D3 | nothing drawn exceeds the terminal width | ✓ |
 | D4 | an unparseable answer degrades to its own text | ✓ |
+| D5 | a section tag the model never opened is not drawn | **✗ `</verification>` reached the gate** →✓ stripped at parse, so the prompt form is clean too |
+| D6 | a tag the model did open survives | ✓ an HTML repro fixture is written intact |

@@ -29,7 +29,7 @@ import { createInterface } from 'node:readline/promises';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
-import { getEngine } from './engine/index.ts';
+import { getFleetEngines } from './engine/index.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { ALL_OFF, type Features, set as setFeatures } from './features.ts';
 import { invalidate } from './hash.ts';
@@ -297,7 +297,7 @@ async function runOne(
       return null;
     }
 
-    const fleet = new Fleet([getEngine(opts.provider)], policyFromEnv());
+    const fleet = new Fleet(getFleetEngines(opts.provider), policyFromEnv());
     const ledger = new Ledger();
     const code = await openContext(dir, { allowInit: true });
     const pack = code.ready ? await code.pack(task.task) : '';
