@@ -1,7 +1,21 @@
 #!/usr/bin/env node
 /** sumo — a token-frugal coding harness. */
 
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
+
+/**
+ * The version, read from the manifest rather than written out twice.
+ *
+ * It was a literal, and it stayed at 0.1.0 through a release — so `sumo
+ * --version` on a freshly updated machine reported the previous version while
+ * running the new code, which is the one moment anybody asks. Resolved relative
+ * to this file, which sits one directory below the manifest both in `src` and
+ * in the published `dist`.
+ */
+const VERSION = (
+  createRequire(import.meta.url)('../package.json') as { version: string }
+).version;
 
 /**
  * The code index opens a database through `node:sqlite`, which warns that the
@@ -34,7 +48,7 @@ program.hook('preAction', () => {
 program
   .name('sumo')
   .description('Token-frugal coding harness. The harness picks the model and thinking level.')
-  .version('0.1.0')
+  .version(VERSION)
   .option('--provider <name>', 'model provider to use')
   .action(async (opts: { provider?: string }) => {
     // No subcommand: open the interactive harness. `preAction` does not fire for
