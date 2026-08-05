@@ -288,13 +288,26 @@ Naming a provider still means exactly that provider. Routing around one that was
 asked for by name would turn a clear failure into a silent substitution, which is
 the harder of the two to debug.
 
+**The advertised context window is not one of those axes**, deliberately. It is
+the one number in the catalogue that looks like a capability and is not: a window
+says what a provider will *accept*, not what a model can attend to, and the two
+come apart badly — RULER finds only half of the models claiming 32K still hold up
+at 32K, and NoLiMa finds eleven of thirteen claiming 128K fall below half their
+own short-context score by then. Nor is there a better constant to put in its
+place. So it stays in the catalogue as data, read as a cap by the budget below,
+and orders nothing.
+
 The one thing not pooled is a schema. A stage that must answer in a schema goes
-to a provider that can *guarantee* one wherever the fleet has any; a provider
-that can only arrange it by convention — Copilot, which hands the model a tool
-carrying the schema and tells it to call it — is used for those stages only when
-nothing in the fleet can promise better. That is still worth having: it is the
-difference between a Copilot-only fleet running `feature`, `fix` and `plan`, and
-refusing all three.
+to a provider that can *guarantee* one; a provider that can only arrange it by
+convention — Copilot, which hands the model a tool carrying the schema and tells
+it to call it — is used for those stages only when nothing better is available.
+That is worth having: it is the difference between a Copilot-only fleet running
+`feature`, `fix` and `plan`, and refusing all three.
+
+The preference is judged per stage, not per fleet. A provider that guarantees a
+schema but has no model matching the tier and effort a stage asked for offers
+nothing to *that* stage, and the fallback applies — otherwise a stage with no
+route would be refused while a provider that could have answered sat unconsidered.
 
 ---
 
@@ -311,6 +324,11 @@ terminal.
 `Write` in its tool set at all, and a `PreToolUse` hook refuses them anyway, with
 a reason the model can act on. `test/enforcement.test.ts` proves it against the
 live provider: a model explicitly ordered to create a file cannot.
+
+**Path confinement follows symlinks**, judging where a file really is rather than
+how it is spelled. A link inside the repository pointing out of it is refused,
+and a working directory reached through a link still contains its own files.
+Comparing the strings gets both of those wrong, in opposite directions.
 
 **Bug work gathers evidence before it may write.** `fix` runs evidence gathering
 that *cannot* edit, then a repro command the harness runs — after showing it to
@@ -402,7 +420,40 @@ normaliser that quietly drops the one failure that mattered would be worse than
 a verbose prompt.
 
 **A long session costs no more per turn than a short one.** The transcript lives
-in this process, and only a bounded recent slice is ever sent.
+in this process, and only a bounded recent slice is ever sent: the last handful
+of turns, each abridged from the *middle* rather than the end, and the most
+recent progress notes. Keeping both ends of a turn matters more than it sounds —
+a stage is told to answer with no preamble and to close with one line per file
+changed, so head-only truncation threw away the part that says what was done, and
+threw it away from the position a model reads best.
+
+**A stage's prompt has a ceiling, and the ceiling is a number of tokens rather
+than a share of the window.** That is the counter-intuitive half and the half
+carrying the evidence: FLenQA holds a task fixed and pads its input, and mean
+accuracy falls 0.92 → 0.68 by three thousand tokens, with the decline already
+visible around five hundred. That is a fact about attention, not about what a
+provider will accept — so a budget written as a fraction of an advertised window
+would hand a million-token model two hundred thousand tokens of prompt and call
+it headroom.
+
+The ceiling is set by the kind of work a stage does — the same axis model
+selection already reasons about, so which model runs a stage and how much it may
+be told cannot drift apart. Assembly happens *after* routing, because that is the
+first moment the budget is knowable: a stage that lands on a small model would
+otherwise get a prompt sized for a large one, which is where the surplus hurts
+most.
+
+Going over drops whole units, never part of one — a half-rendered table is worse
+than an absent one, because the model reads it as complete. The session's facts
+go first, then the recent turns, then the tail of the index pack, which is
+already ranked so its tail is what it ranked lowest. The task and its
+instructions are never dropped: if they alone exceed the budget the stage runs
+over rather than being asked half a question. Every drop is printed, because a
+prompt quietly shortened is indistinguishable from one that was never that long.
+
+The ceilings are starting points, generous enough that ordinary work sits well
+under them. They are a guard rail against a session or an index pack growing
+without bound, not a saving, and `sumo bench` is what will tune them.
 
 ---
 
@@ -485,7 +536,11 @@ src/
   ui.ts             terminal rendering, and artifacts laid out for a person
   route/            local routing: tokenizer.ts, embed.ts, corpus.ts, local.ts
   context/          the code-context seam: lexical.ts, codegraph.ts, lsp.ts
-  engine/           the provider seam: claude.ts, index.ts, types.ts
+                    budget.ts — how much prompt a stage may be built from
+  engine/           the provider seam: claude.ts, copilot.ts, index.ts, types.ts
+                    fleet.ts — which provider and model runs a stage
+                    catalog.ts, availability.ts — what exists, what you can reach
+                    aptitude.ts — the one hand-written judgement, kept in one file
   workflows/        do.ts, plan.ts, fix.ts, feature.ts
 ```
 
@@ -543,8 +598,8 @@ attestations follow automatically.
 ## Next
 
 None of these are load-bearing: worktree isolation so `feature` never touches
-your working tree, and a `/resume` that restarts mid-workflow rather than from
-the top.
+your working tree, and tuning the context ceilings against the fixtures rather
+than leaving them at the starting points they are today.
 
 By design: nothing indexes, installs, or spawns a server behind your back.
 `sumo setup` is the one command that does any of it, and it asks first.
