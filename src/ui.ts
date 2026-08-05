@@ -428,6 +428,7 @@ ${pc.bold('Session')}
   ${pc.cyan('/lsp')} [off]  precise references via language servers
   ${pc.cyan('/cost')}      spend so far, per stage
   ${pc.cyan('/routing')}   how turns are being routed, and what you corrected
+  ${pc.cyan('/models')} [off|on <id>] every model, what you can use, what you have turned off
   ${pc.cyan('/cache')} [clear] answers reused instead of paid for again
   ${pc.cyan('/rung')} [n]  show or pin the model tier ${pc.dim('(0 cheapest … 4)')}
   ${pc.cyan('/git')} <args> run git here, e.g. /git checkout main

@@ -111,6 +111,7 @@ And the session commands:
 | | |
 |---|---|
 | `/routing` | how turns have been routed, and which you corrected |
+| `/models` [off\|on *id*] | every model, what your account can use, what you have turned off |
 | `/index` `/lsp` | build the code index; turn the precision layer on |
 | `/cost` `/cache` `/rung` | spend so far; reuse; the model tier |
 | `/git` *args* | run git here without leaving the session |
@@ -296,6 +297,34 @@ at 32K, and NoLiMa finds eleven of thirteen claiming 128K fall below half their
 own short-context score by then. Nor is there a better constant to put in its
 place. So it stays in the catalogue as data, read as a cap by the budget below,
 and orders nothing.
+
+**`sumo models` shows the whole picture, and lets you veto part of it.**
+
+```
+github-copilot  17 models offered to this account
+  small
+    ● gpt-5.6-luna         $1.2/M  schema effort:… · routed here
+    ✗ gpt-5.4-nano        $1.25/M  schema · not offered to this account
+    ○ gpt-5-mini              $2/M  schema effort:… · beaten at this tier
+    ⊘ claude-haiku-4.5        $5/M  · turned off by you
+```
+
+Four states, because four different things decide whether a model runs and they
+are worth telling apart. `✗` is the account's answer — an organisation policy or
+a plan that does not carry it. `○` is routing's: available, and still never
+chosen, because something else at the same tier beats it on every axis. That is
+the one people ask about, and it used to be unanswerable without reading the
+code. `⊘` is yours.
+
+`sumo models off gpt-4.1` turns one off, `sumo models on` puts it back, and
+`/models` does both mid-session. A bare id switches the model on every provider
+carrying it — the same weights are often reachable through two accounts, and
+turning it off on one while it quietly keeps running on the other is the least
+useful thing the command could do; `provider/id` names one exactly. The choices
+live in `~/.sumo/models-disabled.json`, outside any repository, because not
+wanting to spend Opus tokens is a fact about a wallet rather than a checkout.
+They survive a probe refresh: an organisation re-enabling a model must not
+silently undo your decision to stop paying for it.
 
 The one thing not pooled is a schema. A stage that must answer in a schema goes
 to a provider that can *guarantee* one; a provider that can only arrange it by

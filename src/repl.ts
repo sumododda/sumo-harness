@@ -12,6 +12,7 @@ import * as cache from './cache.ts';
 import { Conversation } from './conversation.ts';
 import { getFleetEngines } from './engine/index.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
+import { listModels, switchModel } from './models.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
 import { routeLocally } from './route/local.ts';
 import {
@@ -191,6 +192,7 @@ export async function repl(providerName?: string): Promise<number> {
         if (typeof outcome === 'object') {
           if ('setTestCommand' in outcome) testCommand = outcome.setTestCommand;
           else if ('runShell' in outcome) await runUserCommand(outcome.runShell, repo.root);
+          else if ('models' in outcome) await showModels(outcome.models, fleet, repo.root);
           else if ('resumeGate' in outcome) await working(() => handleResumeGate(outcome.resumeGate, deps));
           else await working(() => handleTurn(outcome.run, deps, outcome.once));
         }
@@ -549,6 +551,38 @@ async function runWorkflowTurn(
   }
 }
 
+/**
+ * `/models`, against this session's own fleet.
+ *
+ * A missing model is the operator mistyping an id, not a reason to end the
+ * session, so it is reported the way every other bad argument here is.
+ */
+async function showModels(
+  request: { readonly action?: 'on' | 'off'; readonly target?: string },
+  fleet: Fleet,
+  root: string,
+): Promise<void> {
+  try {
+    if (request.action) {
+      if (!request.target) {
+        process.stdout.write(
+          `${ui.error(`/models ${request.action} needs a model`, ['Run /models to see what there is'])}\n\n`,
+        );
+        return;
+      }
+      process.stdout.write(`${switchModel(fleet.members, request.action, request.target)}\n\n`);
+      return;
+    }
+    process.stdout.write(`${await listModels(fleet, fleet.members, root)}\n\n`);
+  } catch (err) {
+    if (err instanceof SumoError) {
+      process.stdout.write(`${ui.error(err.message, err.suggestions)}\n\n`);
+      return;
+    }
+    throw err;
+  }
+}
+
 /** Rules first; one cheap classification only when they cannot decide. */
 async function decideIntent(input: string, deps: TurnDeps, once?: Mode): Promise<Intent> {
   const { fleet, repo, ledger, state } = deps;
@@ -681,6 +715,8 @@ type CommandOutcome =
   | { readonly run: string; readonly once?: Mode }
   | { readonly setTestCommand: string }
   | { readonly runShell: string }
+  /** `/models`, and `/models off|on <id>`. Async because listing asks the fleet. */
+  | { readonly models: { readonly action?: 'on' | 'off'; readonly target?: string } }
   | {
       readonly resumeGate: { readonly state: TaskState; readonly task: string; readonly gate: GateResume };
     };
@@ -837,6 +873,21 @@ function handleCommand(
     case 'routing':
       process.stdout.write(`${renderRouting(deps.repo.root)}\n\n`);
       return 'handled';
+
+    case 'models': {
+      const [word = '', ...names] = arg.split(/\s+/).filter((s) => s.length > 0);
+      const verb = word.toLowerCase();
+      if (verb === 'off' || verb === 'on') {
+        return { models: { action: verb, target: names.join(' ') } };
+      }
+      if (word.length > 0) {
+        process.stdout.write(
+          `${ui.error(`"${word}" is not a models command`, ['Use /models, /models off <id>, or /models on <id>'])}\n\n`,
+        );
+        return 'handled';
+      }
+      return { models: {} };
+    }
 
     case 'cache': {
       if (arg.toLowerCase() === 'clear') {

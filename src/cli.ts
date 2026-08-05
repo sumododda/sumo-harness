@@ -32,6 +32,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
 import pc from 'picocolors';
 import { runBench } from './bench.ts';
 import * as features from './features.ts';
+import { runModels } from './models.ts';
 import { estimateTokens, loadProfile, PROFILE_PATH, remember } from './profile.ts';
 import { repl } from './repl.ts';
 import { runSetup } from './setup.ts';
@@ -39,6 +40,22 @@ import { runDo } from './workflows/do.ts';
 import { SumoError } from './types.ts';
 
 const program = new Command();
+
+/**
+ * The provider a subcommand was asked for.
+ *
+ * `--provider` is declared on the program *and* on the subcommands that accept
+ * it, and commander resolves a name declared in both places to the program —
+ * so every subcommand's own copy arrived empty and the flag did nothing.
+ * `sumo do --provider github-copilot` ran on the default fleet, silently, and
+ * the only clue was the price.
+ *
+ * Reading both and preferring the subcommand's keeps the flag documented where
+ * it is used, which is where `--help` looks for it.
+ */
+function providerOf(opts: { provider?: string }): string | undefined {
+  return opts.provider ?? program.opts<{ provider?: string }>().provider;
+}
 
 /** Applied before any command runs, so every path honours it. */
 program.option('--no-cache', 'never reuse a previous answer, even an identical one');
@@ -81,7 +98,26 @@ program
     process.exitCode = await runDo(task, {
       ...(opts.rung !== undefined ? { rung: opts.rung } : {}),
       ...(opts.budget !== undefined ? { budget: opts.budget } : {}),
-      ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+      ...(providerOf(opts) !== undefined ? { provider: providerOf(opts)! } : {}),
+    });
+  });
+
+program
+  .command('models')
+  .description('Show every model, whether this account can use it, and turn one off or on')
+  .argument('[action]', 'off or on, to change one')
+  .argument('[model]', 'the model id, or provider/id when both carry it')
+  .option('--provider <name>', 'limit to one provider')
+  .action(async (action: string | undefined, model: string | undefined, opts: { provider?: string }) => {
+    if (action !== undefined && action !== 'on' && action !== 'off') {
+      throw new SumoError(`Unknown action "${action}".`, 'unknown_action', [
+        'Use `sumo models`, `sumo models off <id>`, or `sumo models on <id>`.',
+      ]);
+    }
+    process.exitCode = await runModels({
+      ...(action ? { action } : {}),
+      ...(model !== undefined ? { target: model } : {}),
+      ...(providerOf(opts) !== undefined ? { provider: providerOf(opts)! } : {}),
     });
   });
 
@@ -120,7 +156,7 @@ program
         ...(split(opts.configs) ? { configs: split(opts.configs)! } : {}),
         ...(split(opts.fixtures) ? { fixtures: split(opts.fixtures)! } : {}),
         ...(opts.rung !== undefined ? { rung: opts.rung } : {}),
-        ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+        ...(providerOf(opts) !== undefined ? { provider: providerOf(opts)! } : {}),
         ...(opts.repeat !== undefined ? { repeat: opts.repeat } : {}),
         ...(opts.fromMetrics ? { fromMetrics: true } : {}),
       });

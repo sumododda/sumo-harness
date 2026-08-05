@@ -86,6 +86,9 @@ every one of these passed its own tests while being wrong in a live session.
 | P7 | the secret screen fires on a Copilot write | **✗ no content was passed, so it never could** →✓ `test/copilot-gate.test.ts` |
 | P8 | a writable stage that changed nothing says so | **✗ a `/do` claimed an edit it never made, 8 credits** →✓ `no files changed` |
 | P9 | `/cost` says which model actually ran | **✗ only the tier** →✓ `on` column |
+| P10 | `sumo models` lists every model with its state | ✓ live, both providers |
+| P11 | turning a model off changes what routing picks | ✓ small tier moved `gpt-5.6-luna` → `gpt-5-mini` |
+| P12 | `--provider` on a subcommand | **✗ commander resolved it to the program, so the flag did nothing on `do`, `bench` and `models`** →✓ |
 | P10 | a schema stage routes at the default rung on a mixed fleet | **✗ `No usable model for a small stage` — the guarantee was preferred per fleet, so `evidence` asking small+low effort had every Copilot model removed before Anthropic's effort-less small model turned out to offer nothing** →✓ judged per stage; `bench --fixtures ts-app-memo` now runs 1/1 at rung 0 where it previously failed to route at all |
 | P12 | one task bills both providers | ✓ `17.00 cr + $0.1046` on a single fixture — Copilot credits and Anthropic dollars kept apart in the ledger rather than summed |
 | P13 | `sumo bench` exits when its last task finishes | **✗ the Copilot headless process outlives the run and holds the pipe open** — results are complete and correct, the process just does not return |

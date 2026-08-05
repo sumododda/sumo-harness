@@ -32,6 +32,7 @@ import {
   undominated,
 } from './catalog.ts';
 import { usable } from './availability.ts';
+import { disabledModels } from './preferences.ts';
 import { ruledOut, score, workOf } from './aptitude.ts';
 import type { Capability, Engine } from './types.ts';
 import { type Effort, SumoError, type Tier } from '../types.ts';
@@ -135,6 +136,11 @@ export class Fleet {
   /** Every provider in the fleet, for `/routing` to report. */
   get providers(): readonly string[] {
     return this.engines.map((e) => e.name);
+  }
+
+  /** The engines themselves, for `sumo models` to report what each one offers. */
+  get members(): readonly Engine[] {
+    return this.engines;
   }
 
   /**
@@ -325,8 +331,15 @@ export class Fleet {
       return null;
     }
 
+    const turnedOff = disabledModels();
+
     return candidates(catalogued, need.tier)
       .filter((m) => reachable === null || reachable.has(m.id))
+      // The operator's own decision, and the first one applied, because it is
+      // the only filter here that is a preference rather than a fact. Keyed on
+      // the engine's name rather than the catalogue's, so what `sumo models`
+      // showed is what gets switched off.
+      .filter((m) => !turnedOff.has(`${engine.name}:${m.id}`))
       .filter((m) => !requireSchemaModels || canSchema(m))
       // An effort the model does not accept is not a smaller request, it is an
       // invalid one — so a rung asking for effort routes only at models offering
