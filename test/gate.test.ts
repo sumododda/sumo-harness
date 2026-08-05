@@ -4,9 +4,9 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { buildGate, findSecret, isCredentialPath, isInside } from '../src/gate-tools.ts';
 
@@ -192,6 +192,40 @@ test('isInside confines a candidate to root, the same way buildGate does', () =>
   assert.equal(isInside('/repo', '/repo/src/a.ts'), true);
   assert.equal(isInside('/repo', '../outside.ts'), false);
   assert.equal(isInside('/repo', '/etc/passwd'), false);
+});
+
+test('a root reached through a symlink still contains its own files', () => {
+  // What broke `sumo bench`: macOS hands out temporary directories as
+  // `/var/folders/…` and resolves them to `/private/var/folders/…`, so a stage
+  // working in one and told about the other had every legitimate write refused.
+  // The file need not exist yet — a Write creates it.
+  const real = mkdtempSync(join(tmpdir(), 'sumo-gate-real-'));
+  const link = join(mkdtempSync(join(tmpdir(), 'sumo-gate-link-')), 'root');
+  try {
+    symlinkSync(real, link, 'dir');
+
+    assert.equal(isInside(link, join(real, 'memo.js')), true, 'same directory, two names');
+    assert.equal(isInside(real, join(link, 'memo.js')), true, 'and the other way round');
+  } finally {
+    rmSync(real, { recursive: true, force: true });
+    rmSync(dirname(link), { recursive: true, force: true });
+  }
+});
+
+test('a symlink pointing out of the root is not smuggled back in', () => {
+  // The escape the old lexical check missed. Following the link can only ever
+  // move a path out of the root, so resolving errs the safe way.
+  const root = mkdtempSync(join(tmpdir(), 'sumo-gate-escape-'));
+  const outside = mkdtempSync(join(tmpdir(), 'sumo-gate-outside-'));
+  try {
+    symlinkSync(outside, join(root, 'escape'), 'dir');
+
+    assert.equal(isInside(root, join(root, 'src', 'a.ts')), true, 'an ordinary path is unaffected');
+    assert.equal(isInside(root, join(root, 'escape', 'stolen.ts')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
 });
 
 test('findSecret matches the same patterns buildGate refuses content on', () => {

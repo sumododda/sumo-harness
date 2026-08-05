@@ -8,8 +8,8 @@
  */
 
 import * as features from './features.ts';
-import { existsSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { ToolGate } from './engine/types.ts';
 
 /** Pulls the target path out of whichever field a tool uses for it. */
@@ -21,9 +21,48 @@ function targetPath(input: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * Where a path really is, with any symlinks in it followed.
+ *
+ * `realpathSync` needs the path to exist, and the path a write is about to
+ * create does not — so this resolves the deepest ancestor that does and rejoins
+ * the rest. A path with no existing ancestor at all (only reachable if even the
+ * filesystem root failed to resolve) falls back to the lexical answer, which is
+ * what this function used to be.
+ */
+function trueLocation(path: string): string {
+  let existing = resolve(path);
+  const missing: string[] = [];
+
+  for (;;) {
+    try {
+      return join(realpathSync(existing), ...missing.toReversed());
+    } catch {
+      const parent = dirname(existing);
+      if (parent === existing) return resolve(path);
+      missing.push(basename(existing));
+      existing = parent;
+    }
+  }
+}
+
+/**
+ * Whether a path is contained by a root, judged on where both really are.
+ *
+ * Comparing the strings is not enough, in both directions. It reports a write
+ * as escaping when it is not: macOS hands out temporary directories as
+ * `/var/folders/…` while resolving them to `/private/var/folders/…`, so a stage
+ * working in one and told about the other had every legitimate write refused —
+ * which is how `sumo bench` came to spend its retries arguing with the gate.
+ * And it misses a real escape in the other direction, since a symlink inside the
+ * root pointing out of it reads as an ordinary relative path.
+ *
+ * Resolving both ends fixes both, and errs the safe way: following the links can
+ * only ever move a path *out* of the root, never smuggle one in.
+ */
 export function isInside(root: string, candidate: string): boolean {
   const abs = isAbsolute(candidate) ? candidate : resolve(root, candidate);
-  const rel = relative(root, abs);
+  const rel = relative(trueLocation(root), trueLocation(abs));
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
