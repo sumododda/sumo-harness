@@ -13,10 +13,12 @@
  * corrected is ground truth. A later classifier trained on this file has to
  * weigh those differently, and cannot if they all look alike.
  *
- * This used to be a log and nothing more. `src/route/local.ts` now reads
- * `corrections()` back at startup to build a per-repo overlay on its shipped
- * centroids — this file stays a plain record of what happened; the weighing of
- * what it means lives entirely in the router.
+ * This is a log and nothing more. A local embedding router briefly read the
+ * corrections back to nudge its own centroids; it is gone, along with the rules
+ * that ran ahead of it, and routing is now one classification call per turn.
+ * What remains here is the record — which is the part that was worth keeping,
+ * because it is still the only place the harness's own mistakes are written
+ * down in the operator's words.
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -27,8 +29,14 @@ import type { Mode } from './intent.ts';
  * Who decided the mode.
  *
  * Ordered by how much a decision is worth as evidence: `you` is ground truth,
- * `rules` is deterministic and reproducible, `classifier` is a paid guess, and
- * `default` is what happens when nothing worked.
+ * `classifier` is a paid guess, and `default` is what happens when nothing
+ * worked.
+ *
+ * `rules` and `local` are historical and no longer produced — they were the
+ * keyword table and the local embedding router that used to run ahead of the
+ * classifier. They stay in the union because logs written before those were
+ * removed are still read: dropping the values would make old rows fall out of
+ * every tally that reads them back.
  */
 export type DecidedBy = 'you' | 'rules' | 'local' | 'classifier' | 'default';
 
@@ -138,24 +146,6 @@ export function read(root: string): RoutingRecord[] {
   } catch {
     return [];
   }
-}
-
-export interface RoutingCorrection {
-  readonly text: string;
-  /** The mode it was corrected *to*. */
-  readonly mode: Mode;
-}
-
-/**
- * Every turn on record where the operator's answer replaced an earlier one —
- * the raw material for the local router's per-repo overlay. Built on `read()`
- * rather than a second pass over the file, so a corrupt or absent log degrades
- * exactly the same way for both.
- */
-export function corrections(root: string): RoutingCorrection[] {
-  return read(root)
-    .filter((row) => row.was !== undefined)
-    .map((row) => ({ text: row.text, mode: row.mode }));
 }
 
 export interface RoutingSummary {

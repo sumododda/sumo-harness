@@ -4,7 +4,7 @@
  *
  * Run by hand when the model line-up changes, not on install — the output is
  * committed, so a clone has everything and an offline run never depends on a
- * third party being up. Same discipline as `build-router-model.ts`, and for the
+ * third party being up. Committed rather than fetched at runtime, and for the
  * same reason: what the harness needs at runtime should be data in the repo.
  *
  * The upstream database is ~3.5 MB across 180 providers. Filtered to the ones

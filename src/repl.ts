@@ -14,16 +14,8 @@ import { getFleetEngines } from './engine/index.ts';
 import { Fleet, policyFromEnv } from './engine/fleet.ts';
 import { editModels, listModels, switchModel } from './models.ts';
 import { hash, invalidate, repoFingerprint } from './hash.ts';
-import { routeLocally } from './route/local.ts';
-import {
-  CLASSIFY_PROMPT,
-  CLASSIFY_SCHEMA,
-  classify,
-  type Intent,
-  intentFromClassifier,
-  type Mode,
-  shellRequest,
-} from './intent.ts';
+import { type Intent, intentFromClassifier, type Mode, pinned, shellRequest } from './intent.ts';
+import { type Classification, classify, routeKey } from './route.ts';
 import { Ledger } from './ledger.ts';
 import { estimateTokens, loadProfile, PROFILE_PATH, remember } from './profile.ts';
 import { type SingleStage, singleStageParts } from './prompts.ts';
@@ -623,55 +615,43 @@ async function showModels(
   }
 }
 
-/** Rules first; one cheap classification only when they cannot decide. */
+/**
+ * A named mode, or one cheap classification.
+ *
+ * There is no rules layer under this any more and no local model beside it —
+ * see the header of `intent.ts` for why. What is left is a fast path for turns
+ * whose mode the operator stated, a cache so a repeated request is free, and
+ * one call for everything else.
+ */
 async function decideIntent(input: string, deps: TurnDeps, once?: Mode): Promise<Intent> {
   const { fleet, repo, ledger, state } = deps;
 
   // A mode named on this message wins, and is gone by the next one. A pinned
   // mode is the standing default under it.
   const sticky = once ?? (state.mode === 'auto' ? undefined : state.mode);
-  const ruled = classify(input, sticky);
-  if (ruled) return state.rung ? { ...ruled, rung: state.rung, why: 'pinned' } : ruled;
+  const withRung = (intent: Intent): Intent =>
+    state.rung ? { ...intent, rung: state.rung, why: 'pinned' } : intent;
 
-  // The rules had no answer. Before paying for one, ask the local model — an
-  // embedding table on disk, no network and no provider call. It answers only
-  // when one mode is clearly ahead of the rest and otherwise says nothing, so
-  // the paid classifier below still handles everything genuinely ambiguous.
-  if (!sticky) {
-    const local = routeLocally(input);
-    if (local) {
-      const intent = intentFromClassifier(local.label, local.complexity, 'local');
-      return state.rung ? { ...intent, rung: state.rung, why: 'pinned' } : intent;
-    }
+  const named = pinned(input, sticky);
+  if (named) return withRung(named);
+
+  // Asked before, answered before. A hit costs nothing and skips the wait,
+  // which is the only thing routing through a model actually costs a person.
+  const key = routeKey(input);
+  const hit = cache.read<Classification>(repo.root, key);
+  if (hit) return withRung(intentFromClassifier(hit.mode, hit.complexity));
+
+  const answer = await classify(input, fleet, ledger, repo.root);
+  if (answer) {
+    cache.write(repo.root, key, answer);
+    return withRung(intentFromClassifier(answer.mode, answer.complexity));
   }
 
-  // Ambiguous even to the model. One turn, no tools, cheapest model.
-  try {
-    const result = await runStage(
-      fleet,
-      {
-        name: 'route',
-        prompt: CLASSIFY_PROMPT(input),
-        rung: rungAt(0),
-        capabilities: [],
-        cwd: repo.root,
-        // Headroom: the model sometimes emits a sentence before the structured
-        // answer, and a router that runs out of turns costs money for nothing.
-        maxTurns: 3,
-        maxBudget: 0.02,
-        outputSchema: CLASSIFY_SCHEMA,
-      },
-      ledger,
-    );
-    const parsed = JSON.parse(result.output) as { mode: Mode; complexity: string };
-    const intent = intentFromClassifier(parsed.mode, parsed.complexity);
-    return state.rung ? { ...intent, rung: state.rung, why: 'pinned' } : intent;
-  } catch {
-    // A failed classification must never block the turn.
-    // The classifier failed outright. Say so rather than dressing it as a
-    // decision — an unroutable turn is worth spotting in the log.
-    return { mode: 'chat', rung: state.rung ?? rungAt(0), why: 'nothing matched', by: 'default' };
-  }
+  // Nothing usable: the call failed, or it named a mode the harness cannot
+  // dispatch. Say so rather than dressing it as a decision — an unroutable turn
+  // is worth spotting in the log, and `chat` is the mode that can do the least
+  // harm while being wrong, having no way to write anything.
+  return { mode: 'chat', rung: state.rung ?? rungAt(0), why: 'nothing matched', by: 'default' };
 }
 
 /**
@@ -1005,7 +985,10 @@ function renderRouting(root: string): string {
   const lines = [`  ${pc.bold(String(summary.turns))} turns routed`];
 
   // Ordered by how much a decision is worth as evidence, not by frequency.
-  for (const source of ['you', 'rules', 'classifier', 'default'] as const) {
+  // `rules` and `local` are no longer produced; they are listed because a log
+  // outlives the code that wrote it, and a breakdown that silently dropped them
+  // would not add up to the turn count printed directly above it.
+  for (const source of ['you', 'rules', 'local', 'classifier', 'default'] as const) {
     const count = summary.by[source];
     if (count > 0) {
       lines.push(pc.dim(`    ${source.padEnd(11)} ${String(count).padStart(4)}  ${share(count)}`));

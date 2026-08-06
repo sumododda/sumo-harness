@@ -2,8 +2,8 @@
  * Which provider runs a stage.
  *
  * The harness already decides *how hard* to think — that is the router's job,
- * and it answers from the prompt (see `route/local.ts`). This decides *whose
- * model* thinks, and deliberately answers from something else entirely.
+ * and it answers from the prompt (see `intent.ts`). This decides *whose model*
+ * thinks, and deliberately answers from something else entirely.
  *
  * Provider choice is not a prompt-difficulty question, and treating it as one
  * would be fitting noise. Two providers frequently serve the same weights — at

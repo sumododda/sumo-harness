@@ -168,44 +168,50 @@ mid-task is collected rather than lost, and folded into the next stage.
 
 ### Which mode a message needs
 
-Three layers, cheapest first, each responsible only for what it claims.
+A model reads the request. There is no keyword table, and nothing for you to
+remember — say what you want in your own words.
 
-**Rules answer most messages at zero cost** — "what does X do" is a question,
-"fix the typo" is a mechanical edit, "there's a race condition" is a hard bug.
-`test/intent.test.ts` records exactly what routes where.
+**You can always name it.** `/fix`, `/do`, `/feature`, `/plan`, `/research`, or
+`/chat` pin the mode for a message or for the session. A named mode is honoured
+as typed, costs nothing, and is never overruled — `/chat` in particular can only
+ever narrow what a turn is allowed to do.
 
-**Then a local model, still free.** `model/embeddings.bin` is a 7.5 MB int8
-lookup table: Model2Vec has one row of floats per vocabulary token and a sentence
-is the mean of its tokens' rows — no attention, no layers, nothing to run — so
-classifying is an array index and an average, about a tenth of a millisecond,
-with no network and no provider call. It is data rather than code, which is why
-there is no runtime to install and nothing compiled per architecture.
+**Otherwise one classification decides**, on the cheapest model in the fleet:
+one turn, no tools, a constrained five-way answer plus a difficulty estimate.
+It costs about half a cent against a turn that then spends dollars, and it
+reads the request rather than matching it — the difference between *"what
+happens when the queue is empty"* (a question) and *"the queue fills up and it
+stops responding"* (a bug report), which no pattern over those words can tell
+apart.
 
-It answers only when one mode is clearly ahead of the rest, and says nothing
-otherwise. That margin is the whole design: a free wrong answer is worth less
-than a cheap right one, because a wrong route can hand an edit to a read-only
-stage or send a question through five stages of a bug workflow. On the 64
-held-out phrasings in `test/route.test.ts` it answers 28% of what the rules
-decline and is wrong on none of them.
+`scripts/routing-eval.ts` measures it against 84 requests the harness has
+historically got wrong — a polite request read as a question, a JSDoc `@throws`
+tag read as a crash report, an instruction to search the web sent somewhere with
+no web access. It reads 82 of them correctly, at $0.0047 a turn:
 
-It also learns from your repository. Every `/again <mode>` records ground truth
-in `.sumo/routing.jsonl` — the exact words, and the route they needed. The
-shipped corpus is generic phrasing, identical for everyone, so it is out of
-distribution for any one person's vocabulary by construction; each correction is
-folded into the corrected label's centroid at a third of a shipped example's
-weight. The margin is untouched: corrections change what the router believes,
-never how sure it has to be before it answers.
+| | correct | $/routed turn |
+|---|---|---|
+| the router as first written | 92% | 0.0135 |
+| **+ no tools, and a classifier's system prompt** | **98%** | **0.0047** |
 
-Getting there took one instructive failure. The first version confidently routed
-*"can you clarify what happens when the queue is empty"* to `fix` — a question
-read as a bug report, because a static embedding carries topic and not speech
-act, and "queue", "empty" and "times out" are failure-flavoured words whoever is
-saying them. The fix was not a bigger model, which has the same blind spot; it
-was adding questions *about* failure-flavoured behaviour to the corpus.
+Both of those fixes came out of running it, and neither was a routing change.
+The router was inheriting the repository tool set and the coding-agent system
+prompt, so it opened files to classify a sentence and narrated while it did.
+Withholding both made it cheaper and more accurate at the same time.
 
-**Only genuinely ambiguous input pays** for a one-turn classification on the
-cheapest model. `/routing` reports which layer decided, keeping `by local`
-distinct from `by classifier` so a free decision can be told from a paid one.
+Repeated requests are free: the answer is cached on the words alone, so it
+survives every edit you make. `--no-cache` turns that off.
+
+Two things still bypass the model, because neither is a guess about what you
+meant. A request that is really shell work — `git push`, `npm install` — is
+answered immediately rather than handed to a stage with no shell. And if the
+classification fails outright, the turn runs as `chat`, the mode that can do the
+least harm while being wrong, recorded as `default` rather than dressed up as a
+decision.
+
+`/routing` shows what was decided and by whom, and every `/again <mode>` writes
+a correction to `.sumo/routing.jsonl` — the exact words, and the route they
+needed. That file is the record of what the harness gets wrong, in your words.
 
 ### Which files it should read
 

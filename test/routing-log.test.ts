@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { corrections, path, read, record, reset, summarize } from '../src/routing-log.ts';
+import { path, read, record, reset, summarize } from '../src/routing-log.ts';
 
 /** A throwaway repo root, so a test never writes into a real one. */
 function scratch(): string {
@@ -130,27 +130,22 @@ test('the summary names the routes that get corrected', () => {
   }
 });
 
-test('corrections lists only the turns that replaced an earlier route', () => {
+test('deciders that are no longer produced are still counted when read back', () => {
+  // `rules` and `local` were the keyword table and the local embedding router.
+  // Both are gone, but logs written while they existed are still read, and a
+  // breakdown that silently dropped their rows would not add up to the turn
+  // count printed beside it.
   const root = scratch();
   try {
-    record(root, { text: 'change the license', mode: 'chat', why: 'question', by: 'rules' });
-    record(root, { text: 'change the license', mode: 'do', why: 'pinned', by: 'you' });
-    // Not a correction — nothing came before it to replace.
-    record(root, { text: 'add a checkout endpoint', mode: 'feature', why: 'new', by: 'rules' });
-
-    assert.deepEqual(corrections(root), [{ text: 'change the license', mode: 'do' }]);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('corrections is empty for a repo with no log or no corrections in it', () => {
-  const root = scratch();
-  try {
-    assert.deepEqual(corrections(root), []);
-
     record(root, { text: 'what does X do', mode: 'chat', why: 'question', by: 'rules' });
-    assert.deepEqual(corrections(root), []);
+    record(root, { text: 'the total is wrong', mode: 'fix', why: 'moderate', by: 'local' });
+    record(root, { text: 'add oauth', mode: 'feature', why: 'moderate', by: 'classifier' });
+
+    const summary = summarize(read(root));
+    assert.equal(summary.turns, 3);
+    assert.equal(summary.by.rules, 1);
+    assert.equal(summary.by.local, 1);
+    assert.equal(summary.by.classifier, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
