@@ -48,6 +48,23 @@ test('on: git and web are not added unconditionally — only a stage that actual
   assert.ok(web.includes('WebFetch'));
 });
 
+test('on or off: a stage that asks for no capabilities is given no tools at all', () => {
+  // Measured, not assumed. With the stable list expanding `[]` into
+  // Read/Glob/Grep/Edit/Write, the router — whose entire input is one sentence
+  // and which has no use for the repository — opened files to look for the
+  // identifiers a request mentioned. It took up to six turns, spent its whole
+  // budget, and sometimes returned narration where the JSON should have been.
+  // Routing every turn through that cost 13x what routing costs now.
+  //
+  // The stable list exists to keep one task's tool-definitions prefix identical
+  // across its stages. A no-capability stage is a single call that is not part
+  // of any such run, so it has no prefix to keep stable and nothing to gain.
+  for (const stableToolList of [false, true]) {
+    features.set({ stableToolList });
+    assert.deepEqual(toolsFor([]), [], `stableToolList: ${String(stableToolList)}`);
+  }
+});
+
 test('on: the tool list is listed but the gate still refuses the write — tool-list omission traded for gate enforcement, not for no enforcement', () => {
   features.set({ stableToolList: true });
 

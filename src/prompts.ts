@@ -66,6 +66,26 @@ Paths you use must be relative to it, or absolute beneath it.
 ${loadProfile()}${canWrite ? '' : `\n${READ_ONLY}`}`;
 }
 
+/**
+ * For stages that answer from their own prompt and nothing else.
+ *
+ * {@link ROLE} tells a model it is a coding agent working in a repository, and
+ * a model told that behaves like one. Given it, the router — whose entire input
+ * is one sentence — opened the repository to look for the identifiers named in
+ * the request, then narrated what it was doing at length: about 1,400 output
+ * tokens and three turns to produce a two-field JSON object, and occasionally
+ * no JSON at all because it ran out of budget while exploring.
+ *
+ * Withholding the tools stopped the exploring. Withholding this stopped the
+ * narration, which was most of what was left. Both are the same point: a stage
+ * that classifies text is not a coding stage, and describing it as one costs
+ * far more than the words it takes to say.
+ */
+export const CLASSIFIER_ROLE = `You label text. The input is the whole task — there is no repository to
+consult, no files to open, and no tools.
+Answer with the JSON object the schema describes and nothing else: no
+reasoning, no preamble, no explanation, no restating of the question.`;
+
 const DO_INSTRUCTIONS = `Make this change now. Any code shown above was selected for this task by the
 repository's index — start there rather than searching for it again.
 Keep the change minimal and match the surrounding code's style. Reuse existing

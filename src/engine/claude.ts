@@ -87,6 +87,20 @@ const STABLE_CAPABILITIES: readonly Capability[] = ['read', 'search', 'edit'];
  * {@link HOSTED_SEARCH}.
  */
 export function toolsFor(capabilities: readonly Capability[], searched = false): string[] {
+  // A stage that asks for nothing gets nothing, stable list or not. The two
+  // that do this — the router and the escalation judge — answer from their own
+  // prompt and have no use for the repository, so the stable set has no prefix
+  // to keep stable for them: they are one call each, not part of a task's run
+  // of stages.
+  //
+  // Left implicit, this was expensive. `capabilities: []` still handed both
+  // `read`, `search` and `edit`, and the router used them: asked to classify
+  // "subtotal throws on empty input" it opened the repository, went looking for
+  // `subtotal`, took six turns, spent its entire budget and returned narration
+  // instead of an answer. Routing every turn through that cost 13× what routing
+  // costs now, on a question whose whole input is one sentence.
+  if (capabilities.length === 0) return [];
+
   const granted = features.get().stableToolList
     ? [...new Set([...STABLE_CAPABILITIES, ...capabilities])]
     : capabilities;

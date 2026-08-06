@@ -41,6 +41,16 @@ export interface StageSpec {
    */
   readonly parts?: readonly Part[];
   readonly rung: Rung;
+  /**
+   * A system prompt to use instead of the harness's own.
+   *
+   * For stages that are not coding stages. The default describes a coding agent
+   * working in a repository, which is the right frame for every stage that
+   * touches code and an expensive one for a stage that only reads its own
+   * prompt — see {@link CLASSIFIER_ROLE}. Already part of the cache key, so an
+   * override cannot replay an answer produced under the default.
+   */
+  readonly system?: string;
   readonly capabilities: readonly Capability[];
   /**
    * True when the harness already searched the web for this stage and put the
@@ -179,7 +189,7 @@ export async function runStage(
   const base = assembled?.text ?? spec.prompt;
   const prompt = steered ? `${base}\n${steered}` : base;
 
-  const system = systemPrompt(spec.cwd, allowWrites);
+  const system = spec.system ?? systemPrompt(spec.cwd, allowWrites);
   const composition = {
     system: estimateTokens(system),
     prompt: estimateTokens(prompt),
