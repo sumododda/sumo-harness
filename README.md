@@ -408,8 +408,10 @@ The ordering is enforced by which stage holds write access.
   your tests pass — the suite is still red from failures that pre-date this task
 ```
 
-It cuts a `sumo/…` branch, refusing on a dirty tree rather than stashing your
-work behind your back. It explores read-only, plans, waits for you, then writes
+It cuts a `sumo/…` branch, and stays on the current one when the tree is dirty
+rather than stashing your work behind your back — it says so and carries on, so
+the changes land where you can see them instead of on a branch you did not know
+had been made. It explores read-only, plans, waits for you, then writes
 tests and **proves they fail** — a green suite here is treated as an error, since
 tests that pass before the code exists prove nothing. Only then does it
 implement, with those test files locked by the permission gate, so "make the
@@ -426,10 +428,18 @@ distinguishable.
 
 **One mode is allowed off the machine.** Everything else answers from the
 repository, which is what makes an answer checkable — you can go and read the
-same code. `/research` cannot, so it is never routed to automatically, only
-pinned, and its prompt requires a URL on every claim: an uncited sentence from
-that stage is indistinguishable from one the model simply remembered, which is
-the failure it exists to avoid.
+same code. `/research` cannot, so it is never *guessed* at — no classifier sends
+a turn off this machine — and its prompt requires a URL on every claim: an
+uncited sentence from that stage is indistinguishable from one the model simply
+remembered, which is the failure it exists to avoid.
+
+Being told to search is not a guess, though, and treating it as one was worse
+than the thing the rule protects against. "search web and see if there are any
+alternatives" had nowhere to go, so it fell through to the local classifier,
+which sent it to `feature`: a research question got a branch, an explore stage
+with no web tool that said so, and a plan whose single proposal was to re-run it
+somewhere it could actually search. An explicit instruction now routes by rule,
+for free, exactly as typing `/research` would.
 
 **The harness runs the search itself**, for the same reason it runs the tests:
 searching is deterministic, so a turn spent deciding to search and a second one

@@ -338,3 +338,47 @@ test('corrections accumulate rather than replacing each other', async () => {
 
   assert.equal(feedbackBlock([]), '', 'no corrections adds nothing to the prompt');
 });
+
+test('being told to search the web routes there, rather than being guessed at', () => {
+  // `research` is never guessed at, which left an explicit instruction with
+  // nowhere to go: the local classifier sent "search web and see if there are
+  // any alternatives for this project" to `feature`, which cut a branch and ran
+  // an explore stage that had no web tool and said so.
+  for (const input of [
+    'search web and see if there are any alternatives for this project',
+    'search the web for alternatives to this project',
+    'look online for a maintained fork',
+    'check the internet for the current pricing',
+    'can you google whether this API still exists',
+    'find out online what replaced this library',
+  ]) {
+    const intent = classify(input);
+    assert.equal(intent?.mode, 'research', `"${input}" did not route to research`);
+    assert.equal(intent?.by, 'rules', 'this is a rule, not a paid guess');
+  }
+});
+
+test('a search that is not a web search is left alone', () => {
+  // Each of these carries one half of the pattern and none of them means "go
+  // and look this up off the machine".
+  const cases: [string, string][] = [
+    ['search the codebase for callers of applyTax', 'research'],
+    ['fix the web scraper', 'research'],
+    ['find the function that formats money', 'research'],
+    ['check whether the online flag is set', 'research'],
+  ];
+  for (const [input, forbidden] of cases) {
+    const intent = classify(input);
+    assert.notEqual(intent?.mode, forbidden, `"${input}" was read as a web search`);
+  }
+});
+
+test('building a web search is a feature, not a request to search', () => {
+  for (const input of [
+    'add a web search feature to the app',
+    'implement web search over the notes',
+  ]) {
+    const intent = classify(input);
+    assert.equal(intent?.mode, 'feature', `"${input}" was read as a request to search`);
+  }
+});

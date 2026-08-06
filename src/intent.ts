@@ -96,6 +96,35 @@ const BUILDING_STRONG =
 const BUILDING = /\b(add|implement|build|create|support|introduce|feature|endpoint|new)\b/i;
 
 /**
+ * An explicit instruction to go and look something up off this machine.
+ *
+ * `research` is never *guessed* at — every other mode answers from the
+ * repository, which is what makes an answer checkable, and a harness that
+ * decided on its own to leave the machine would be trading that away on a hunch.
+ * But being told to search the web is not a hunch. "search web and see if there
+ * are any alternatives" is exactly as explicit as typing `/research`, and
+ * treating it as unroutable left it to the local classifier, which sent it to
+ * `feature`: a research question got a branch, an explore stage with no web
+ * tool, and a plan whose only proposal was to run it somewhere it could
+ * actually search. Three stages and five credits to arrive back at the request.
+ *
+ * The destination has to sit directly after the verb, which is what separates an
+ * instruction from a coincidence. Allowing any gap between the two matched
+ * "check whether the online flag is set" — a question about a boolean — as
+ * eagerly as "check the internet". "search the codebase for callers" and "fix
+ * the web scraper" each carry one half and neither means this.
+ *
+ * Adjacency is also what settles the collision with building one: "add a web
+ * search feature" and "implement web search over the notes" both put a noun
+ * where the destination would have to be, so neither matches. A `BUILDING`
+ * guard was tried first and was worse than nothing — that list holds `api`,
+ * `feature` and `command`, which appear in ordinary research questions, so
+ * "google whether this API still exists" was vetoed by the word `API`.
+ */
+const SEARCH_THE_WEB =
+  /\b(?:search|look|check|find|research)\w*\s+(?:out\s+)?(?:the\s+)?(?:web|internet|online)\b|\bon\s+the\s+(?:web|internet)\b|\bgoogle\s+(?:it|this|that|whether|if|for|the|a)\b/i;
+
+/**
  * Hard-to-diagnose failures. These are bugs even when no failure word appears —
  * nobody mentions a deadlock to praise it.
  */
@@ -180,6 +209,12 @@ export function classify(input: string, sticky?: Mode): Intent | null {
     if (asking) return { mode: 'chat', rung: rungAt(hard ? 1 : 0), why: 'question', by: 'rules' };
     // The operator named the mode; that is a label, not a guess.
     return { mode: sticky, rung: rungFor(sticky, hard), why: 'pinned', by: 'you' };
+  }
+
+  // Ahead of the question rule, because most of these *are* questions — and
+  // `chat` is the one mode that cannot answer them, having no web access at all.
+  if (SEARCH_THE_WEB.test(request)) {
+    return { mode: 'research', rung: rungFor('research', hard), why: 'asked to search the web', by: 'rules' };
   }
 
   if (asking) {
